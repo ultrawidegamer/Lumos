@@ -12,6 +12,7 @@ public class LightBaking : EditorWindow {
     private Texture2D actionsIcon;
     private Texture2D lightingIcon;
     private string wsUrl = "ws://127.0.0.1:5000";
+    private ResoLinkHelper resoLinkHelper;
 
     [MenuItem("Window/Light Baking")]
     public static void ShowWindow() {
@@ -22,6 +23,8 @@ public class LightBaking : EditorWindow {
         if (!initialized) {
             initialized = true;
 
+            resoLinkHelper = new ResoLinkHelper();
+
             connectIcon = EditorGUIUtility.IconContent("d_Linked@2x").image as Texture2D;
             disconnectIcon = EditorGUIUtility.IconContent("d_Unlinked@2x").image as Texture2D;
             actionsIcon = EditorGUIUtility.IconContent("d_Preset.Context@2x").image as Texture2D;
@@ -30,12 +33,14 @@ public class LightBaking : EditorWindow {
     }
 
     private void OnGUI() {
+        connected = resoLinkHelper.IsConnected();
+
         CreateConnectionSettingsGUI();
         CreateActionsGUI();
         CreateLightingGUI();
     }
 
-    private void CreateConnectionSettingsGUI() {
+    private async void CreateConnectionSettingsGUI() {
         EditorGUILayout.BeginHorizontal();
             GUIContent content = new GUIContent("Connection Settings", connected ? connectIcon : disconnectIcon);
             showConnectionSettings = EditorGUILayout.Foldout(showConnectionSettings, content, true);
@@ -50,8 +55,10 @@ public class LightBaking : EditorWindow {
 
                 if (GUILayout.Button(connected ? "Disconnect" : "Connect")) {
                     Debug.Log("Try Connection with name: " + wsUrl);
-                    connected = !connected;
-                }
+                    await resoLinkHelper.ConnectAsync(wsUrl);
+                    await resoLinkHelper.SendAsync(new GetSlotMessage {});
+                    await resoLinkHelper.ReceiveAsync();
+            }
             EditorGUI.indentLevel--;
         }
     }
