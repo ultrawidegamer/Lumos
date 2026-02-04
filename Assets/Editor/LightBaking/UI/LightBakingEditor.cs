@@ -14,7 +14,7 @@ public class LightBaking : EditorWindow {
     private string wsUrl = "ws://127.0.0.1:5000";
     private ResoLinkHelper resoLinkHelper;
 
-    [MenuItem("Window/Light Baking")]
+    [MenuItem("Tools/Light Baking")]
     public static void ShowWindow() {
         GetWindow<LightBaking>("Light Baking");
     }
