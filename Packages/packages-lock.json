@@ -1,5 +1,11 @@
 {
   "dependencies": {
+    "com.0x7c13.unityeditordarkmode": {
+      "version": "file:../_Dependencies/Packages/UnityEditorDarkMode",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
     "com.unity.collab-proxy": {
       "version": "2.11.2",
       "depth": 0,

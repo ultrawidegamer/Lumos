@@ -1,0 +1,19 @@
+{
+  "name": "com.0x7c13.unityeditordarkmode",
+  "version": "1.1.0",
+  "displayName": "UnityEditor-DarkMode",
+  "description": "A fully working dark mode mod for Unity Editor on Windows (Dark Title Bar + Menu Bar + Context Menu)",
+  "unity": "2019.1",
+  "documentationUrl": "https://github.com/0x7c13/UnityEditor-DarkMode",
+  "changelogUrl": "https://github.com/0x7c13/UnityEditor-DarkMode/releases",
+  "licensesUrl": "https://github.com/0x7c13/UnityEditor-DarkMode/blob/main/LICENSE",
+  "keywords": [
+    "inspector",
+    "debug",
+    "runtime"
+  ],
+  "author": {
+    "name": "0x7c13",
+    "url": "https://github.com/0x7c13"
+  }
+}

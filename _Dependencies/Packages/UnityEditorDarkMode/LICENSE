@@ -1,25 +1,6 @@
-DarkMode Mod for Unity Editor on Windows
-----------------------------------------------------------------------------
-v1.1 04/08/2024
-----------------------------------------------------------------------------
-
-A fully working runtime dark mode mod for Unity Editor on Windows with:
-
-  - Dark title bar
-  - Dark menu bar
-  - Dark context menu
-  - And more...
-
-> This runtime mod works on Windows 11 and Windows 10 1903+.
-  Tested on Unity 2019, 2020, 2021, 2022, 2023 and Unity 6.
-  
-Source code is available at: https://github.com/0x7c13/UnityEditor-DarkMode
-
-----------------------------------------------------------------------------
-
 MIT License
 
-Copyright (c) 2024 Jiaqi (0x7c13) Liu
+Copyright (c) 2024 Jiaqi Liu
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
