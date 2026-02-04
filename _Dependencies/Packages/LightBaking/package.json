@@ -1,6 +1,6 @@
 {
   "name": "com.ultrawidegamer.lightbaking",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "displayName": "LightBaking",
   "description": "Baked lighting for Resonite, made simple with ResoniteLink and Unity",
   "unity": "2022.3",
