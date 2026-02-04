@@ -6,6 +6,12 @@
       "source": "local",
       "dependencies": {}
     },
+    "com.ultrawidegamer.lightbaking": {
+      "version": "file:../_Dependencies/Packages/LightBaking",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
     "com.unity.collab-proxy": {
       "version": "2.11.2",
       "depth": 0,

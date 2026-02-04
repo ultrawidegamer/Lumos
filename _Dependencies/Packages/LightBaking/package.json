@@ -1,0 +1,22 @@
+{
+  "name": "com.ultrawidegamer.lightbaking",
+  "version": "1.0.1",
+  "displayName": "LightBaking",
+  "description": "Baked lighting for Resonite, made simple with ResoniteLink and Unity",
+  "unity": "2022.3",
+  "documentationUrl": "https://github.com/ultrawidegamer/LightBaking",
+  "changelogUrl": "https://github.com/ultrawidegamer/LightBaking/releases",
+  "license": "TDB",
+  "keywords": [
+    "Lighting",
+    "Baked",
+    "Editor",
+    "BakedLighting",
+    "Resonite",
+    "Tool"
+  ],
+  "author": {
+    "name": "ultrawidegamer, Cloud_Jumper",
+    "url": "https://github.com/ultrawidegamer"
+  }
+}
