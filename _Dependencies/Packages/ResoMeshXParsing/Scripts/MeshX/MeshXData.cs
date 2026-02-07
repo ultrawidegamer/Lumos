@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace LightBakingResoLink {
+namespace ResoMeshXParsing {
     public enum ColorProfile {
         Linear,
         sRGB,

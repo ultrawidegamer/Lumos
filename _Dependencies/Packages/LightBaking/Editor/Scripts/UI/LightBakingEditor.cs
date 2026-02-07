@@ -1,6 +1,7 @@
 using UnityEditor;
 using UnityEngine;
 using LightBakingResoLink;
+using ResoMeshXParsing;
 using System.Threading.Tasks;
 
 public class LightBaking : EditorWindow {
@@ -141,6 +142,9 @@ public class LightBaking : EditorWindow {
             }
 
             GameObject obj = MeshXConverter.CreateGameObjectWithMesh(mesh, $"MeshX_{meshId.Substring(0, 12)}");
+
+            Selection.activeGameObject = obj;
+            SceneView.lastActiveSceneView?.FrameSelected();
         } catch (System.Exception e) {
             Debug.LogError($"Error downloading and rendering MeshX: {e.Message}");
         }

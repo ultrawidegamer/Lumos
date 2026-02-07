@@ -2,6 +2,7 @@
   "dependencies": {
     "com.0x7c13.unityeditordarkmode": "file:../_Dependencies/Packages/UnityEditorDarkMode",
     "com.ultrawidegamer.lightbaking": "file:../_Dependencies/Packages/LightBaking",
+    "com.ultrawidegamer.resomeshxparsing": "file:../_Dependencies/Packages/ResoMeshXParsing",
     "com.unity.collab-proxy": "2.11.2",
     "com.unity.feature.development": "1.0.2",
     "com.unity.inputsystem": "1.18.0",

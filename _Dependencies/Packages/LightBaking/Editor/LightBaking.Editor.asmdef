@@ -1,3 +1,9 @@
 {
-	"name": "LightBaking.Editor"
+	"name": "LightBaking.Editor",
+	"references": [
+		"ResoMeshXParsing"
+	],
+	"includePlatforms": [
+		"Editor"
+	]
 }

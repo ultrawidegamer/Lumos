@@ -1,7 +1,6 @@
 using UnityEngine;
-using UnityEditor;
 
-namespace LightBakingResoLink {
+namespace ResoMeshXParsing {
     public static class MeshXConverter {
         public static Mesh ConvertToUnityMesh(MeshXData meshXData) {
             if (meshXData == null || meshXData.Positions.Count == 0) {
@@ -106,9 +105,6 @@ namespace LightBakingResoLink {
             material.color = Color.white;
 
             Debug.Log($"Created GameObject '{name}' with MeshRenderer");
-           
-            Selection.activeGameObject = obj;
-            SceneView.lastActiveSceneView?.FrameSelected();
 
             return obj;
         }

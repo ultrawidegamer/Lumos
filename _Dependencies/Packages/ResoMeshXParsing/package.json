@@ -1,0 +1,21 @@
+{
+  "name": "com.ultrawidegamer.resomeshxparsing",
+  "version": "1.0.0",
+  "displayName": "ResoMeshXParsing",
+  "description": "Parse and Read Resonite MeshX files",
+  "unity": "2022.3",
+  "documentationUrl": "https://github.com/ultrawidegamer/LightBaking/tree/main/_Dependencies/Packages/ResoMeshXParsing",
+  "changelogUrl": "https://github.com/ultrawidegamer/LightBaking/releases",
+  "license": "TDB",
+  "keywords": [
+    "MeshX",
+    "Parse",
+    "Parser",
+    "3DMesh",
+    "Resonite"
+  ],
+  "author": {
+    "name": "ultrawidegamer, Cloud_Jumper",
+    "url": "https://github.com/ultrawidegamer"
+  }
+}

@@ -12,6 +12,12 @@
       "source": "local",
       "dependencies": {}
     },
+    "com.ultrawidegamer.resomeshxparsing": {
+      "version": "file:../_Dependencies/Packages/ResoMeshXParsing",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
     "com.unity.collab-proxy": {
       "version": "2.11.2",
       "depth": 0,

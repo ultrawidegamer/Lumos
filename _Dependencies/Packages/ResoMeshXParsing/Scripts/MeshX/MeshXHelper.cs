@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using LZ4;
 using UnityEngine;
 
-namespace LightBakingResoLink {
+namespace ResoMeshXParsing {
     public class MeshXHelper {
         private static string baseUrl = "https://assets.resonite.com/";
         private static readonly object lockObj = new object();
