@@ -1,6 +1,7 @@
 using UnityEditor;
 using UnityEngine;
 using LightBakingResoLink;
+using System.Threading.Tasks;
 
 public class LightBaking : EditorWindow {
     private bool showConnectionSettings = true;
@@ -72,7 +73,7 @@ public class LightBaking : EditorWindow {
         }
     }
 
-    private void CreateActionsGUI() {
+    private async void CreateActionsGUI() {
         EditorGUILayout.BeginHorizontal();
             GUIContent content = new GUIContent("ResoLink Actions", actionsIcon);
             showActionSettings = EditorGUILayout.Foldout(showActionSettings, content, true);
@@ -84,8 +85,8 @@ public class LightBaking : EditorWindow {
                     Debug.Log("Try to retrieve mesh from ResoLink");
                     RetrieveMesh();
                 }
-                if (GUILayout.Button("Send Mesh")) {
-                    Debug.Log("Try to send mesh through ResoLink");
+                if (GUILayout.Button("Download and Render MeshX")) {
+                    await DownloadAndRenderMeshX("7fb0e8a50deab87ad4509e2b0da99c33bde4d37998567fbf3d51699086887832");
                 }
             EditorGUI.indentLevel--;
         }
@@ -121,5 +122,27 @@ public class LightBaking : EditorWindow {
     private async void RetrieveMesh() {
         await resoLinkHelper.SendAsync(new GetSlotMessage {});
         Debug.Log(await resoLinkHelper.ReceiveAsync());
+    }
+
+    private async Task DownloadAndRenderMeshX(string meshId) {
+        try {
+            MeshXData meshXData = await MeshXHelper.Instance.DownloadMeshX(meshId);
+            
+            if (meshXData == null) {
+                Debug.LogError("Failed to download MeshX data");
+                return;
+            }
+
+            Mesh mesh = MeshXConverter.ConvertToUnityMesh(meshXData);
+            
+            if (mesh == null) {
+                Debug.LogError("Failed to convert MeshX to Unity mesh");
+                return;
+            }
+
+            GameObject obj = MeshXConverter.CreateGameObjectWithMesh(mesh, $"MeshX_{meshId.Substring(0, 12)}");
+        } catch (System.Exception e) {
+            Debug.LogError($"Error downloading and rendering MeshX: {e.Message}");
+        }
     }
 }
