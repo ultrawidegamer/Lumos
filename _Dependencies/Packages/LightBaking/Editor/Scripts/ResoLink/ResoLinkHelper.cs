@@ -125,7 +125,6 @@ namespace LightBakingResoLink {
             "[FrooxEngine]FrooxEngine.UserRoot",
             "[FrooxEngine]FrooxEngine.Undo.UndoManager",
             "[FrooxEngine]FrooxEngine.SceneInspector",
-            "[FrooxEngine]FrooxEngine.CommonSpawnArea",
             "[FrooxEngine]FrooxEngine.SlotGizmo",
             "[FrooxEngine]FrooxEngine.TeleportLocomotion",
             "[FrooxEngine]FrooxEngine.UIX.Canvas",
