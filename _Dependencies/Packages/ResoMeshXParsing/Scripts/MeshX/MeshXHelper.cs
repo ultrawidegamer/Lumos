@@ -15,6 +15,7 @@ namespace ResoMeshXParsing {
         private static MeshXHelper instance;
         private static BinaryReader binaryReader = null;
         private static HttpClient httpClient = new HttpClient();
+        private byte[] meshxHeader = new byte[6] { (byte)5, (byte)'M', (byte)'e', (byte)'s', (byte)'h', (byte)'X' };
 
         public static MeshXHelper Instance {
             get {
@@ -30,18 +31,39 @@ namespace ResoMeshXParsing {
         }
 
         public async Task<MeshXData> DownloadMeshX(string id) {
-            httpClient.DefaultRequestHeaders.Add("User-Agent", "LightBaking");
-            HttpResponseMessage response = await httpClient.GetAsync(baseUrl + id);
+            string cachedPath = MeshXCache.Instance.GetFromCache(id);
             
-            if (response.IsSuccessStatusCode) {
-                byte[] bytes = await response.Content.ReadAsByteArrayAsync();
+            if (cachedPath != null) {
+                try {
+                    using (FileStream fileStream = new FileStream(cachedPath, FileMode.Open, FileAccess.Read, FileShare.Read)) {
+                        return DecodeMeshX(fileStream);
+                    }
+                } catch (Exception ex) {
+                    Debug.LogError($"Failed to load cached MeshX {id} from {cachedPath}: {ex.Message}");
+                }
+            }
+            
+            string url = baseUrl + id;
 
-                using (MemoryStream stream = new MemoryStream(bytes)) {
-                    return DecodeMeshX(stream);
+            try {
+                if (!httpClient.DefaultRequestHeaders.Contains("User-Agent")) {
+                    httpClient.DefaultRequestHeaders.Add("User-Agent", "LightBaking");
                 }
 
-            } else {
-                Debug.LogError($"Failed to download MeshX: {response.StatusCode}");
+                HttpResponseMessage response = await httpClient.GetAsync(url);
+                
+                if (response.IsSuccessStatusCode) {
+                    byte[] bytes = await response.Content.ReadAsByteArrayAsync();
+
+                    using (MemoryStream stream = new MemoryStream(bytes)) {
+                        return DecodeMeshX(stream);
+                    }
+                } else {
+                    Debug.LogError($"Failed to download MeshX from {url}: {response.StatusCode}");
+                    return null;
+                }
+            } catch (Exception ex) {
+                Debug.LogError(ex.ToString());
                 return null;
             }
         }
@@ -168,16 +190,13 @@ namespace ResoMeshXParsing {
 
             switch (meshXData.EncodingName) {
                 case "LZ4":
-                    Debug.Log("Switching to LZ4 decompression");
                     LZ4Stream lz4Stream = new LZ4Stream(binaryReader.BaseStream, LZ4StreamMode.Decompress);
                     currentReader = new BinaryReader(lz4Stream);
                     break;
                 case "LZMA":
-                    Debug.LogError("LZMA decompression not yet implemented");
                     currentReader = null;
                     break;
                 default:
-                    Debug.Log("Using Plain encoding (no compression)");
                     currentReader = binaryReader;
                     break;
             }
@@ -386,8 +405,9 @@ namespace ResoMeshXParsing {
 
         private int CheckMeshXHeaders(Stream stream) {
             long pos = stream.Position;
-            
-            if (!IsMeshXHeader()) {
+            byte[] meshXHeaders = ReadMeshXHeader();
+
+            if (!IsMeshXHeader(meshXHeaders)) {
                 Debug.Log("Not a MeshX file, trying LZ4 decompression");
 
                 stream.Position = pos;
@@ -395,15 +415,13 @@ namespace ResoMeshXParsing {
                 LZ4Stream lz4Stream = new LZ4Stream(stream, LZ4StreamMode.Decompress);
                 binaryReader = new BinaryReader(lz4Stream);
 
-                if (!IsMeshXHeader()) {
+                if (!IsMeshXHeader(meshXHeaders)) {
                     Debug.LogError("Invalid MeshX file");
                     return 0;
                 }
             }
 
             int version = binaryReader.ReadInt32();
-
-            Debug.Log($"MeshX version: {version}");
 
             if (version > maxSupportedMeshXVersion) {
                 Debug.LogError("MeshX version is too new");
@@ -450,17 +468,19 @@ namespace ResoMeshXParsing {
         private void BlendShapeCount(MeshXData meshXData) {
             meshXData.BlendShapeCount = (int)Read7Bits();
         }
-        private bool IsMeshXHeader() {
-            byte[] meshxHeader = new byte[6] { (byte)5, (byte)'M', (byte)'e', (byte)'s', (byte)'h', (byte)'X' };
+        public bool IsMeshXHeader(byte[] header) {
+            return meshxHeader.SequenceEqual(header);
+        }
+
+        private byte[] ReadMeshXHeader() {
             byte first = binaryReader.ReadByte();
             byte m = binaryReader.ReadByte();
             byte e = binaryReader.ReadByte();
             byte s = binaryReader.ReadByte();
             byte h = binaryReader.ReadByte();
             byte x = binaryReader.ReadByte();
-            byte[] header = new byte[6] { first, m, e, s, h, x };
 
-            return meshxHeader.SequenceEqual(header);
+            return new byte[6] { first, m, e, s, h, x };
         }
 
         private void ReadColorProfile(MeshXData meshXData) {

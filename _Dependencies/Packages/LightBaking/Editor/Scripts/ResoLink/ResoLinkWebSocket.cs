@@ -5,11 +5,16 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Unity.Plastic.Newtonsoft.Json;
+using System.Buffers;
 
 namespace LightBakingResoLink {
     public class ResoLinkWebSocket {
         private ClientWebSocket socket;
         private CancellationTokenSource cancelSource;
+        private const int BUFFER_SIZE = 64 * 1024;
+        private readonly SemaphoreSlim sendLock = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim receiveLock = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim messageAvailable = new SemaphoreSlim(0);
 
         public bool IsConnected() {
             return socket != null && socket.State == WebSocketState.Open;
@@ -19,6 +24,7 @@ namespace LightBakingResoLink {
             if (IsConnected()) return;
 
             socket = new ClientWebSocket();
+            socket.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);            
             cancelSource = new CancellationTokenSource();
 
             try {
@@ -42,63 +48,90 @@ namespace LightBakingResoLink {
             } finally {
                 socket?.Dispose();
                 cancelSource?.Dispose();
+                sendLock?.Dispose();
+                receiveLock?.Dispose();
                 socket = null;
                 cancelSource = null;
             }
         }
 
         public async Task Send<T>(T data) {
-            if (!IsConnected()) return;
+            if (!IsConnected()) {
+                Debug.LogWarning("Cannot send: WebSocket not connected");
+                return;
+            }
 
+            await sendLock.WaitAsync();
             try {
+                if (!IsConnected()) return;
                 string json = JsonConvert.SerializeObject(data);
                 byte[] bytes = Encoding.UTF8.GetBytes(json);
-                await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, cancelSource.Token);
+
+                await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+            } catch (OperationCanceledException) {
+                // Expected during shutdown - don't log
             } catch (Exception e) {
                 Debug.LogError("WebSocket send failed: " + e.Message);
+            } finally {
+                sendLock.Release();
             }
         }
 
-        public async Task<object> Receive() {
-            if (!IsConnected()) return null;
+        public async Task<T> Receive<T>() {
+            if (!IsConnected()) return default(T);
 
-            byte[] buffer = new byte[1024];
-            StringBuilder completeMessage = new StringBuilder();
-            WebSocketReceiveResult result = null;
-
+            byte[] rentedBuffer = ArrayPool<byte>.Shared.Rent(BUFFER_SIZE);
+            await receiveLock.WaitAsync();
             try {
-                while (result == null || !result.EndOfMessage) {
-                    result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancelSource.Token);
+                int totalBytes = 0;
+                WebSocketReceiveResult result = null;
+
+                while (IsConnected() && (result == null || !result.EndOfMessage)) {
+                    int remainingSpace = rentedBuffer.Length - totalBytes;
+                    if (remainingSpace <= 0) {
+                        byte[] newBuffer = ArrayPool<byte>.Shared.Rent(rentedBuffer.Length * 2);
+                        Buffer.BlockCopy(rentedBuffer, 0, newBuffer, 0, totalBytes);
+                        ArrayPool<byte>.Shared.Return(rentedBuffer);
+                        rentedBuffer = newBuffer;
+                        remainingSpace = rentedBuffer.Length - totalBytes;
+                    }
+
+                    result = await socket.ReceiveAsync(new ArraySegment<byte>(rentedBuffer, totalBytes, remainingSpace), CancellationToken.None);
+
+                    if (!IsConnected()) return default(T);
 
                     if (result.MessageType == WebSocketMessageType.Close) {
                         await Disconnect();
-                        return null;
+                        return default(T);
                     }
 
-                    string chunk = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    completeMessage.Append(chunk);
+                    totalBytes += result.Count;
                 }
 
-                string message = completeMessage.ToString();
+                if (!IsConnected()) return default(T);
 
-                try {
-                    return JsonConvert.DeserializeObject<object>(message);
-                } catch {
-                    Debug.LogWarning("Received message is not valid JSON");
-                    return null;
-                }
+                string message = Encoding.UTF8.GetString(rentedBuffer, 0, totalBytes);
+
+                return JsonConvert.DeserializeObject<T>(message);
             } catch (OperationCanceledException) {
-                return null;
+                return default(T);
             } catch (Exception e) {
                 Debug.LogError("WebSocket receive failed: " + e.Message);
-                return null;
+                return default(T);
+            } finally {
+                ArrayPool<byte>.Shared.Return(rentedBuffer);
+                receiveLock.Release();
             }
         }
 
         public void Dispose() {
+            Debug.Log("Disposing ResoLinkWebSocket");
             cancelSource?.Cancel();
             socket?.Dispose();
             cancelSource?.Dispose();
+            sendLock?.Dispose();
+            receiveLock?.Dispose();
+            messageAvailable?.Dispose();
             socket = null;
             cancelSource = null;
         }

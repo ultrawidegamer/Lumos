@@ -47,8 +47,6 @@ namespace ResoMeshXParsing {
                 mesh.RecalculateTangents();
             }
 
-            Debug.Log($"Successfully converted MeshX to Unity mesh: {meshXData.VertexCount} vertices, {meshXData.Submeshes.Count} submeshes");
-
             return mesh;
         }
 
@@ -88,24 +86,35 @@ namespace ResoMeshXParsing {
             }
         }
 
-        public static GameObject CreateGameObjectWithMesh(Mesh mesh, string name = "MeshX_Object") {
-            if (mesh == null) {
-                Debug.LogError("Cannot create GameObject - Mesh is null");
-                return null;
+        public static void ApplyMeshToGameObject(Mesh mesh, GameObject targetObject) {
+            MeshFilter meshFilter = targetObject.GetComponent<MeshFilter>();
+            if (meshFilter == null) { 
+                meshFilter = targetObject.AddComponent<MeshFilter>();
+            }
+            meshFilter.sharedMesh = mesh;
+
+            MeshRenderer meshRenderer = targetObject.GetComponent<MeshRenderer>();
+            if (meshRenderer == null) {
+                meshRenderer = targetObject.AddComponent<MeshRenderer>();
             }
 
+            int subMeshCount = mesh != null ? mesh.subMeshCount : 1;
+            Material[] sharedMaterials = meshRenderer.sharedMaterials;
+            if (sharedMaterials == null || sharedMaterials.Length != subMeshCount) {
+                sharedMaterials = new Material[subMeshCount];
+            }
+
+            Shader shader = Shader.Find("Standard");
+            for (int i = 0; i < subMeshCount; i++) {
+                if (sharedMaterials[i] != null) continue;
+                sharedMaterials[i] = new Material(shader);
+            }
+            meshRenderer.sharedMaterials = sharedMaterials;
+        }
+
+        public static GameObject CreateGameObjectWithMesh(Mesh mesh, string name = "MeshX_Object") {
             GameObject obj = new GameObject(name);
-
-            MeshFilter meshFilter = obj.AddComponent<MeshFilter>();
-            MeshRenderer meshRenderer = obj.AddComponent<MeshRenderer>();
-            Material material = new Material(Shader.Find("Standard"));
-            
-            meshFilter.mesh = mesh;
-            meshRenderer.material = material;
-            material.color = Color.white;
-
-            Debug.Log($"Created GameObject '{name}' with MeshRenderer");
-
+            ApplyMeshToGameObject(mesh, obj);
             return obj;
         }
     }
