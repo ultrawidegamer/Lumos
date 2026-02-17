@@ -409,6 +409,9 @@ namespace LightBakingResoLink {
                     meshId = meshId.Replace("local://", "").Split("/")[1]; 
                 }
 
+                Mesh meshData = MeshXCache.Instance.GetFromMeshDataCache(meshId);
+                if (meshData != null) return meshData;
+
                 MeshXData meshXData = await (isLocal ? MeshXHelper.Instance.DownloadLocalMeshX(meshId) : MeshXHelper.Instance.DownloadMeshX(meshId));
                 if (meshXData == null) return null;
                 
