@@ -16,6 +16,7 @@ namespace ResoMeshXParsing {
         private Dictionary<string, Mesh> cachedMeshData = new Dictionary<string, Mesh>();
         private static readonly ThreadLocal<SHA256> sha256Pool = new ThreadLocal<SHA256>(() => SHA256.Create(), trackAllValues: false);
         private static readonly char[] hexChars = "0123456789abcdef".ToCharArray();
+        public bool isConnected = false;
 
         public static MeshXCache Instance {
             get {
@@ -57,6 +58,8 @@ namespace ResoMeshXParsing {
 
             List<string> files = new List<string>();
             foreach (string file in Directory.EnumerateFiles($"{cacheDirectory}\\Cache", "*", SearchOption.AllDirectories)) {
+                if (!isConnected) return;
+
                 string extension = Path.GetExtension(file);
                 if (extension == ".meshx" || !string.IsNullOrEmpty(extension)) continue;
                 files.Add(file);
@@ -73,9 +76,11 @@ namespace ResoMeshXParsing {
 
             List<Task> tasks = new List<Task>();
             for (int i = 0; i < files.Count; i++) {
+                if (!isConnected) return;
                 int index = i;
                 string file = files[index];
                 tasks.Add(Task.Run(() => {
+                    if (!isConnected) return;
                     try {
                         using (FileStream fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, FileOptions.SequentialScan)) {
                             byte[] header = new byte[6];
@@ -135,7 +140,7 @@ namespace ResoMeshXParsing {
             return null;
         }
 
-        private bool PathExists(string path) {
+        public bool PathExists(string path) {
             return File.Exists(path) || Directory.Exists(path);
         }
 

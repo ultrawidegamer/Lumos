@@ -16,9 +16,10 @@ namespace LightBakingResoLink {
         private const int MAX_CONCURRENT_RESOLINK_REQUESTS = 10;
         private const int MAX_CONCURRENT_MESH_DOWNLOADS = 10;
         public HierarchyData hierarchyData = null;
-        SynchronizationContext unityContext = SynchronizationContext.Current;
-        Dictionary<string, SlotData> slotDataLookup = null;
-        Dictionary<string, GameObject> createdObjects = null;
+        private SynchronizationContext unityContext = SynchronizationContext.Current;
+        private Dictionary<string, SlotData> slotDataLookup = null;
+        private Dictionary<string, GameObject> createdObjects = null;
+        private Dictionary<string, ResoLinkComponentResponse> cachedMeshComponentData = new Dictionary<string, ResoLinkComponentResponse>();
 
         public static ResoLinkHelper Instance {
             get {
@@ -51,9 +52,9 @@ namespace LightBakingResoLink {
             }
         }
 
-        public async Task DisconnectAsync() {
+        public void Disconnect() {
             try {
-                await resoLinkWebSocket.Disconnect();
+                resoLinkWebSocket.Disconnect();
             } catch (Exception e) {
                 Debug.LogError($"Failed to disconnect from ResoLink: {e.Message}");
             }
@@ -112,9 +113,17 @@ namespace LightBakingResoLink {
             if (!IsConnected()) return null;
             if (id == null) return null;
 
+            string lowerId = id.ToLowerInvariant();
+
             try {
+                if (cachedMeshComponentData.TryGetValue(lowerId, out ResoLinkComponentResponse cachedResponse)) {
+                    return cachedResponse;
+                }            
+                
                 await SendAsync(new GetComponentMessage() { ComponentId = id });
-                return await ReceiveAsyncComponent();
+                cachedMeshComponentData[lowerId] = await ReceiveAsyncComponent();;
+
+                return cachedMeshComponentData[lowerId];
             } catch (Exception e) {
                 Debug.LogError($"Failed to send and receive data from ResoLink: {e.Message}");
                 return null;
@@ -140,6 +149,8 @@ namespace LightBakingResoLink {
             return Task.Run(async () => {
                 await throttler.WaitAsync();
                 try {
+                    if (!IsConnected()) return;
+
                     ResoLinkResponse slotData = await FetchSlot(slot.Id, true);
 
                     if (slotData == null) {
@@ -192,6 +203,8 @@ namespace LightBakingResoLink {
             List<Task> tasks = new List<Task>();
 
             foreach (SlotData slot in children) {
+                if (!IsConnected()) return null;
+
                 tasks.Add(FetchChildSlotTask(throttler, slot, allSlots, slotsWithMeshRenderer, parentPath));
             }
 
@@ -230,6 +243,8 @@ namespace LightBakingResoLink {
                 float fakeProgress = 0f;
 
                 while (!slots.IsCompleted) {
+                    if (!IsConnected()) return;
+
                     fakeProgress += (0.95f - fakeProgress) * 0.001f;
                     progressCallback?.Invoke("Retrieving Data from ResoLink...", fakeProgress);
                     await Task.Delay(50);
@@ -259,6 +274,8 @@ namespace LightBakingResoLink {
                 string currentPath = "";
 
                 for (int i = 0; i < slotInfo.Path.Length; i++) {
+                    if (!IsConnected()) return;
+
                     string pathSegment = slotInfo.Path[i];
                     currentPath = i == 0 ? pathSegment : currentPath + "/" + pathSegment;
 
@@ -289,6 +306,8 @@ namespace LightBakingResoLink {
 
                 int counter = 0;
                 foreach ((string, SlotInfo) slot in hierarchyData.AllSlots) {
+                    if (!IsConnected()) return null;
+
                     SlotInfo slotInfo = slot.Item2;
                     if (slotInfo != null && slotInfo.Path != null && slotInfo.Data != null) {
                         string fullPath = string.Join("/", slotInfo.Path);
@@ -304,7 +323,7 @@ namespace LightBakingResoLink {
             return Task.CompletedTask;
         }
 
-        public async Task ApplyTRSToObjects(Action<string, float> progressCallback = null) {
+        public Task ApplyTRSToObjects(Action<string, float> progressCallback = null) {
             try {
                 progressCallback?.Invoke("Applying TRS...", 0f);
 
@@ -313,6 +332,8 @@ namespace LightBakingResoLink {
                 int totalTransforms = sortedPaths.Count;
 
                 foreach (string path in sortedPaths) {
+                    if (!IsConnected()) return null;
+
                     GameObject obj = createdObjects[path];
                     if (slotDataLookup.TryGetValue(path, out SlotData slotData)) {
                         if (slotData.Position?.Value != null) {
@@ -332,12 +353,13 @@ namespace LightBakingResoLink {
                     if (transformProcessed % 20 == 0 || transformProcessed == totalTransforms) {
                         float progress = transformProcessed / (float)totalTransforms;
                         progressCallback?.Invoke($"Applying TRS... ({transformProcessed}/{totalTransforms})", progress);
-                        await Task.Delay(1);
                     }
                 }
             } catch (Exception e) {
                 Debug.LogError($"Error during TRS apply: {e.Message}\n{e.StackTrace}");
+                return null;
             }
+            return Task.CompletedTask;;
         }
 
         public async Task DownloadAndApplyMeshes(Action<string, float, GameObject> progressCallback = null) {
@@ -378,21 +400,16 @@ namespace LightBakingResoLink {
         }
 
         private async Task<Mesh> AcquireMesh(string meshId) { 
-            meshId = meshId.Replace(".meshx", "").Replace("resdb:///", "");
-        
-            if (meshId.StartsWith("local://")) {
-                return null;
-            } 
-            
-            return await DownloadAndConvertMeshX(meshId);
-        }
-
-        private async Task<Mesh> DownloadAndConvertMeshX(string meshId) {
             try {
-                Mesh meshData = MeshXCache.Instance.GetFromMeshDataCache(meshId);
-                if (meshData != null) return meshData;
+                meshId = meshId.Replace(".meshx", "").Replace("resdb:///", "").Replace(".", "");
+        
+                bool isLocal = meshId.StartsWith("local://");
 
-                MeshXData meshXData = await MeshXHelper.Instance.DownloadMeshX(meshId);
+                if (isLocal) {
+                    meshId = meshId.Replace("local://", "").Split("/")[1]; 
+                }
+
+                MeshXData meshXData = await (isLocal ? MeshXHelper.Instance.DownloadLocalMeshX(meshId) : MeshXHelper.Instance.DownloadMeshX(meshId));
                 if (meshXData == null) return null;
                 
                 Mesh mesh = MeshXConverter.ConvertToUnityMesh(meshXData);

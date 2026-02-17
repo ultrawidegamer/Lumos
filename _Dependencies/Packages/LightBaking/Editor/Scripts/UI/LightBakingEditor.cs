@@ -20,6 +20,7 @@ public class LightBaking : EditorWindow {
     private Texture2D actionsIcon;
     private Texture2D lightingIcon;
     private ResoLinkHelper resoLinkHelper;
+    private MeshXCache meshXCache;
     private string wsUrl = "ws://localhost:5000";
 
     [MenuItem("Tools/Light Baking")]
@@ -29,14 +30,15 @@ public class LightBaking : EditorWindow {
 
     private void OnEnable() {
         resoLinkHelper = ResoLinkHelper.Instance;
+        meshXCache = MeshXCache.Instance;
         resoLinkConnectIcon = EditorGUIUtility.IconContent("d_Linked@2x").image as Texture2D;
         resoLinkDisconnectIcon = EditorGUIUtility.IconContent("d_Unlinked@2x").image as Texture2D;
         cacheConnectIcon = EditorGUIUtility.IconContent("d_CacheServerConnected@2x").image as Texture2D;
         cacheDisconnectIcon = EditorGUIUtility.IconContent("d_CacheServerDisconnected@2x").image as Texture2D;
         actionsIcon = EditorGUIUtility.IconContent("d_Preset.Context@2x").image as Texture2D;
         lightingIcon = EditorGUIUtility.IconContent("d_LightingSettings Icon").image as Texture2D;
-        cacheDirConnected = MeshXCache.Instance.IsCacheDirConnected();
-        dataDirConnected = MeshXCache.Instance.IsDataDirConnected();
+        cacheDirConnected = meshXCache.IsCacheDirConnected();
+        dataDirConnected = meshXCache.IsDataDirConnected();
     }
 
     private void OnGUI() {
@@ -48,8 +50,14 @@ public class LightBaking : EditorWindow {
         if (resoLinkHelper == null) {
             resoLinkHelper = ResoLinkHelper.Instance;
         }
+
+        if (meshXCache == null) {
+            meshXCache = MeshXCache.Instance;
+        }
      
         resoLinkConnected = resoLinkHelper.IsConnected();
+        meshXCache.isConnected = resoLinkConnected;
+
         CreateConnectionSettingsGUI();
         CreateCacheSettingsGUI();
         CreateActionsGUI();
@@ -72,7 +80,8 @@ public class LightBaking : EditorWindow {
             if (GUILayout.Button(resoLinkConnected ? "Disconnect" : "Connect")) {
                 if (resoLinkConnected) {
                     Debug.Log("Disconnecting from ResoLink...");
-                    await resoLinkHelper.DisconnectAsync();
+                    resoLinkHelper.Disconnect();
+                    EditorUtility.ClearProgressBar();
                 } else {
                     Debug.Log("Trying ResoLink Connection at: " + wsUrl);
                     await resoLinkHelper.ConnectAsync(wsUrl);
@@ -90,8 +99,8 @@ public class LightBaking : EditorWindow {
         EditorGUILayout.EndHorizontal();
         if (showCacheSettings) {
             EditorGUI.indentLevel++;
-            CreateFolderPickerGUI("Cache Folder", cacheDirConnected, ref MeshXCache.Instance.cacheDirectory);
-            CreateFolderPickerGUI("Data Folder", dataDirConnected, ref MeshXCache.Instance.dataDirectory);
+            CreateFolderPickerGUI("Cache Folder", cacheDirConnected, ref meshXCache.cacheDirectory);
+            CreateFolderPickerGUI("Data Folder", dataDirConnected, ref meshXCache.dataDirectory);
             EditorGUI.indentLevel--;
         }
     }
@@ -140,8 +149,8 @@ public class LightBaking : EditorWindow {
             if (!string.IsNullOrEmpty(folder)) {
                 path = folder;
                 Repaint();
-                cacheDirConnected = MeshXCache.Instance.IsCacheDirConnected();
-                dataDirConnected = MeshXCache.Instance.IsDataDirConnected();
+                cacheDirConnected = meshXCache.IsCacheDirConnected();
+                dataDirConnected = meshXCache.IsDataDirConnected();
             }
         }
         EditorGUILayout.EndHorizontal();
@@ -150,12 +159,12 @@ public class LightBaking : EditorWindow {
     private Task ProgressBar(Func<Action<string, float>, Task> func) { 
         return func((message, progress) => {
             EditorUtility.DisplayProgressBar("Light Baking", message, Math.Clamp(progress, 0f, 1f));
-        }).ContinueWith(_ => Task.Delay(100));
+        });
     }
 
     private async void RetrieveMesh() {
         try {
-            await ProgressBar(MeshXCache.Instance.UpdatePathCache);
+            await ProgressBar(meshXCache.UpdatePathCache);
             await ProgressBar(resoLinkHelper.FetchMeshSlots);
             await ProgressBar(resoLinkHelper.BuildLookupTables);
             await ProgressBar(resoLinkHelper.ApplyTRSToObjects);
@@ -163,7 +172,7 @@ public class LightBaking : EditorWindow {
             await resoLinkHelper.DownloadAndApplyMeshes((message, progress, obj) => {
                 EditorUtility.DisplayProgressBar("Light Baking", message, progress);
                 if (obj != null) {
-                    CollapseOldAndFocusNewObject(obj);
+                    FocusNewObject(obj);
                 }
             });
         } catch (Exception e) {
@@ -173,7 +182,7 @@ public class LightBaking : EditorWindow {
         }
     }
 
-    private void CollapseOldAndFocusNewObject(GameObject obj) {
+    private void FocusNewObject(GameObject obj) {
         Selection.activeGameObject = obj;
         SceneView.lastActiveSceneView?.FrameSelected();
     }

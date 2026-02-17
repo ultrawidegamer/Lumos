@@ -12,9 +12,9 @@ namespace LightBakingResoLink {
         private ClientWebSocket socket;
         private CancellationTokenSource cancelSource;
         private const int BUFFER_SIZE = 64 * 1024;
-        private readonly SemaphoreSlim sendLock = new SemaphoreSlim(1, 1);
-        private readonly SemaphoreSlim receiveLock = new SemaphoreSlim(1, 1);
-        private readonly SemaphoreSlim messageAvailable = new SemaphoreSlim(0);
+        private SemaphoreSlim sendLock = null;
+        private SemaphoreSlim receiveLock = null;
+        private SemaphoreSlim messageAvailable = null;
 
         public bool IsConnected() {
             return socket != null && socket.State == WebSocketState.Open;
@@ -22,6 +22,10 @@ namespace LightBakingResoLink {
 
         public async Task Connect(string url) {
             if (IsConnected()) return;
+
+            sendLock = new SemaphoreSlim(1, 1);
+            receiveLock = new SemaphoreSlim(1, 1);
+            messageAvailable = new SemaphoreSlim(0);
 
             socket = new ClientWebSocket();
             socket.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);            
@@ -34,17 +38,14 @@ namespace LightBakingResoLink {
             }
         }
 
-        public async Task Disconnect() {
+        public void Disconnect() {
             if (socket == null) return;
 
             try {
                 cancelSource?.Cancel();
-
-                if (socket.State == WebSocketState.Open) {
-                    await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Shutdown", CancellationToken.None);
-                }
+                socket.Abort();
             } catch (Exception e) {
-                Debug.LogError("WebSocket disconnection failed: " + e.Message);
+                Debug.LogError("WebSocket force disconnection failed: " + e.Message);
             } finally {
                 socket?.Dispose();
                 cancelSource?.Dispose();
@@ -101,7 +102,7 @@ namespace LightBakingResoLink {
                     if (!IsConnected()) return default(T);
 
                     if (result.MessageType == WebSocketMessageType.Close) {
-                        await Disconnect();
+                        Disconnect();
                         return default(T);
                     }
 

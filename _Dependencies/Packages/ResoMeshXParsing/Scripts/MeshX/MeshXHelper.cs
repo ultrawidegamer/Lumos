@@ -68,6 +68,26 @@ namespace ResoMeshXParsing {
             }
         }
 
+        public Task<MeshXData> DownloadLocalMeshX(string id) {
+            string path = $"{MeshXCache.Instance.dataDirectory}/Assets/{id}";
+
+            if (MeshXCache.Instance.PathExists(path)) {
+                try {
+                    using (FileStream fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)) {
+                        Debug.Log($"Loading cached MeshX {id} from {path}");
+                        return Task.FromResult(DecodeMeshX(fileStream));
+                    }
+                } catch (Exception ex) {
+                    Debug.LogError($"Failed to load cached MeshX {id} from {path}: {ex.Message}");
+                    return null;
+                }
+            }
+
+            Debug.LogError($"MeshX file not found at {path}");
+
+            return null;
+        }
+        
         private MeshXData DecodeMeshX(Stream stream) {
             binaryReader = new BinaryReader(stream);
             int version = CheckMeshXHeaders(stream);
