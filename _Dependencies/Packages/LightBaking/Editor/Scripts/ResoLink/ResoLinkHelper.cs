@@ -297,8 +297,6 @@ namespace LightBakingResoLink {
             }
         }
 
-
-
         public Task BuildLookupTables(Action<string, float> progressCallback = null) {
             try {
                 progressCallback?.Invoke("Building lookup tables...", 0f);

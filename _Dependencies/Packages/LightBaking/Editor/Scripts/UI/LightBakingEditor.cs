@@ -13,6 +13,7 @@ public class LightBaking : EditorWindow {
     private bool resoLinkConnected = false;
     private bool cacheDirConnected = false;
     private bool dataDirConnected = false;
+    private bool transitioningConnection = false;
     private Texture2D resoLinkConnectIcon;
     private Texture2D resoLinkDisconnectIcon;
     private Texture2D cacheConnectIcon;
@@ -77,22 +78,33 @@ public class LightBaking : EditorWindow {
             wsUrl = EditorGUILayout.TextField(wsUrl);
             EditorGUILayout.EndHorizontal();
 
-            if (GUILayout.Button(resoLinkConnected ? "Disconnect" : "Connect")) {
-                if (resoLinkConnected) {
-                    Debug.Log("Disconnecting from ResoLink...");
-                    resoLinkHelper.Disconnect();
-                    EditorUtility.ClearProgressBar();
-                } else {
-                    Debug.Log("Trying ResoLink Connection at: " + wsUrl);
-                    await resoLinkHelper.ConnectAsync(wsUrl);
+            string connectedText = resoLinkConnected ? "Disconnect" : "Connect";
+            string transitioningText = resoLinkConnected ? "Disconnecting..." : "Connecting...";
+            
+            EditorGUI.BeginDisabledGroup(transitioningConnection || !(cacheDirConnected && dataDirConnected));
+
+            if (GUILayout.Button(transitioningConnection ? transitioningText : connectedText)) {
+                try {
+                    transitioningConnection = true;
+                    if (resoLinkConnected) {
+                        resoLinkHelper.Disconnect();
+                        EditorUtility.ClearProgressBar();
+                    } else {
+                        await resoLinkHelper.ConnectAsync(wsUrl);
+                    }
+                    Repaint();
+                } finally {
+                    transitioningConnection  = false;
                 }
-                Repaint();
             }
             EditorGUI.indentLevel--;
+
+            EditorGUI.EndDisabledGroup();
         }
     }
 
     private void CreateCacheSettingsGUI() {
+        
         EditorGUILayout.BeginHorizontal();
         GUIContent content = new GUIContent("Cache Settings", cacheDirConnected && dataDirConnected ? cacheConnectIcon : cacheDisconnectIcon);
         showCacheSettings = EditorGUILayout.Foldout(showCacheSettings, content, true);
@@ -103,9 +115,11 @@ public class LightBaking : EditorWindow {
             CreateFolderPickerGUI("Data Folder", dataDirConnected, ref meshXCache.dataDirectory);
             EditorGUI.indentLevel--;
         }
+        EditorGUI.EndDisabledGroup();
     }
 
     private void CreateActionsGUI() {
+        EditorGUI.BeginDisabledGroup(!resoLinkConnected);
         EditorGUILayout.BeginHorizontal();
         GUIContent content = new GUIContent("ResoLink Actions", actionsIcon);
         showActionSettings = EditorGUILayout.Foldout(showActionSettings, content, true);
@@ -114,11 +128,11 @@ public class LightBaking : EditorWindow {
         if (showActionSettings) {
             EditorGUI.indentLevel++;
             if (GUILayout.Button("Retrieve Resonite Data")) {
-                Debug.Log("Try to retrieve data from Resonite");
                 RetrieveMesh();
             }
             EditorGUI.indentLevel--;
         }
+        EditorGUI.EndDisabledGroup();
     }
 
     private void CreateLightingGUI() {
@@ -156,21 +170,28 @@ public class LightBaking : EditorWindow {
         EditorGUILayout.EndHorizontal();
     }
 
-    private Task ProgressBar(Func<Action<string, float>, Task> func) { 
+    private Task ProgressBar(Func<Action<string, float>, Task> func) {
         return func((message, progress) => {
-            EditorUtility.DisplayProgressBar("Light Baking", message, Math.Clamp(progress, 0f, 1f));
+            EditorUtility.DisplayProgressBar("Light Baking", message, Mathf.Clamp01(progress));
         });
     }
 
     private async void RetrieveMesh() {
         try {
-            await ProgressBar(meshXCache.UpdatePathCache);
+            Debug.Log("Starting Retrieval from ResoLink");
+            await Task.Delay(1);
+            await ProgressBar(meshXCache.UpdateMeshXPathCache);
+            await Task.Delay(1);
+            await ProgressBar(meshXCache.UpdateTexturePathCache);
+            await Task.Delay(1);
             await ProgressBar(resoLinkHelper.FetchMeshSlots);
+            await Task.Delay(1);
             await ProgressBar(resoLinkHelper.BuildLookupTables);
+            await Task.Delay(1);
             await ProgressBar(resoLinkHelper.ApplyTRSToObjects);
-
+            await Task.Delay(1);
             await resoLinkHelper.DownloadAndApplyMeshes((message, progress, obj) => {
-                EditorUtility.DisplayProgressBar("Light Baking", message, progress);
+                EditorUtility.DisplayProgressBar("Light Baking", message, Mathf.Clamp01(progress));
                 if (obj != null) {
                     FocusNewObject(obj);
                 }
@@ -179,6 +200,7 @@ public class LightBaking : EditorWindow {
             Debug.LogError($"Error during mesh retrieval: {e.Message}\n{e.StackTrace}");
         } finally {
             EditorUtility.ClearProgressBar();
+            Debug.Log("Retrieval from ResoLink finished");
         }
     }
 
