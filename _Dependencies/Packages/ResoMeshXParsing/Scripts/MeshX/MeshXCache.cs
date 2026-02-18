@@ -50,8 +50,8 @@ namespace ResoMeshXParsing {
             return null;
         }
 
-        public async Task UpdatePathCache(Action<string, float> progressCallback = null) {
         //TODO: This method is very similar to UpdateTexturePathCache, refactor it in the future
+        public async Task UpdatePathCache(Action<string, float> progressCallback = null) {
             if (!PathExists(cacheDirectory)) {
                 progressCallback?.Invoke("Cache directory does not exist", 1f);
                 return;
@@ -100,7 +100,7 @@ namespace ResoMeshXParsing {
                                 results[index] = (hash, file);
 
                                 if (!string.IsNullOrEmpty(hash) && !string.IsNullOrEmpty(file)) {
-                                    cachedMeshXUriPaths[hash] = file;
+                                    cachedUriPaths[hash] = file;
                                 }
                             }
                         } catch {

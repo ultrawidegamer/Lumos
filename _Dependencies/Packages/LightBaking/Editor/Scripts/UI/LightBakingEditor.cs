@@ -180,9 +180,7 @@ public class LightBaking : EditorWindow {
         try {
             Debug.Log("Starting Retrieval from ResoLink");
             await Task.Delay(1);
-            await ProgressBar(meshXCache.UpdateMeshXPathCache);
-            await Task.Delay(1);
-            await ProgressBar(meshXCache.UpdateTexturePathCache);
+            await ProgressBar(meshXCache.UpdatePathCache);
             await Task.Delay(1);
             await ProgressBar(resoLinkHelper.FetchMeshSlots);
             await Task.Delay(1);
