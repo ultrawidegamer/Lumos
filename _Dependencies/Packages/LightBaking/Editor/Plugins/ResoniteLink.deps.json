@@ -7,7 +7,7 @@
   "targets": {
     ".NETStandard,Version=v2.0": {},
     ".NETStandard,Version=v2.0/": {
-      "ResoniteLink/1.0.0": {
+      "ResoniteLink/0.8.3": {
         "dependencies": {
           "System.Text.Json": "10.0.1"
         },
@@ -120,7 +120,7 @@
     }
   },
   "libraries": {
-    "ResoniteLink/1.0.0": {
+    "ResoniteLink/0.8.3": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

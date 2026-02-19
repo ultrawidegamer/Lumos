@@ -8,6 +8,7 @@ using ResoMeshXParsing;
 using ResoniteLink;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
 namespace LightBakingResoLink {
@@ -470,17 +471,21 @@ namespace LightBakingResoLink {
                     }
                 }
 
-                AssetData data = await linkInterface.ImportMesh(importData);;               
+                if (linkInterface == null) return false;
+                if (importData == null) return false;
+
+                AssetData data = await linkInterface.ImportMesh(importData);
 
                 Debug.Log($"Mesh import result: {data?.AssetURL}");
 
                 return !string.IsNullOrEmpty(data?.AssetURL?.ToString());
-            } catch (Exception) {
+            } catch (Exception e) {
+                Debug.LogError($"Exception in SendUnityMeshToResoLink: {e.Message}\n{e.StackTrace}");
                 return false;
             }
         }
 
-        private static void FillImportMeshRawDataBuffers(ImportMeshRawData importData, Mesh mesh) {
+        private void FillImportMeshRawDataBuffers(ImportMeshRawData importData, Mesh mesh) {
             var positions = importData.Positions;
             var meshVertices = mesh.vertices;
 
@@ -526,12 +531,117 @@ namespace LightBakingResoLink {
             Vector2[][] meshUVs = { mesh.uv, mesh.uv2, mesh.uv3, mesh.uv4 };
 
             foreach (Vector2[] uvSet in meshUVs) {
-                if (uvSet != null && uvSet.Length == mesh.vertexCount) {
-                    var uvs = importData.AccessUV_2D(uvIndex++);
-                    for (int i = 0; i < mesh.vertexCount; i++) {
-                        uvs[i] = new float2 { x = uvSet[i].x, y = uvSet[i].y };
-                    }
+                if (uvSet == null || uvSet.Length != mesh.vertexCount) continue;
+                
+                var uvs = importData.AccessUV_2D(uvIndex++);
+                for (int i = 0; i < mesh.vertexCount; i++) {
+                    uvs[i] = new float2 { x = uvSet[i].x, y = uvSet[i].y };
+                }                
+            }
+        }
+
+        private void SetTextureReadable(Texture2D texture) {
+            if (texture == null || texture.isReadable) return;
+
+            string assetPath = AssetDatabase.GetAssetPath(texture);
+            if (string.IsNullOrEmpty(assetPath)) return;
+
+            TextureImporter importer = AssetImporter.GetAtPath(assetPath) as TextureImporter;
+            
+            if (importer == null || importer.isReadable) return;
+
+            importer.isReadable = true;
+            importer.SaveAndReimport();
+            
+        }
+
+        private async Task<bool> SendHDRTextureToResoLink(Texture2D texture) {
+            ImportTexture2DRawDataHDR import = new ImportTexture2DRawDataHDR {
+                Width = texture.width,
+                Height = texture.height
+            };
+
+            FillImportHDRTexture2DRawData(import, texture);
+            AssetData assetData = await linkInterface.ImportTexture(import);
+
+            Debug.Log($"HDR Texture import result: {assetData?.AssetURL}");
+
+            return !string.IsNullOrEmpty(assetData?.AssetURL?.ToString());
+        }
+
+        private async Task<bool> SendSDRTextureToResoLink(Texture2D texture) {
+            ImportTexture2DRawData import = new ImportTexture2DRawData {
+                Width = texture.width,
+                Height = texture.height
+            };
+
+            FillImportSDRTexture2DRawData(import, texture);
+            AssetData assetData = await linkInterface.ImportTexture(import);
+
+            Debug.Log($"SDR Texture import result: {assetData?.AssetURL}");
+
+            return !string.IsNullOrEmpty(assetData?.AssetURL?.ToString());
+        }
+
+        private void FillImportHDRTexture2DRawData(ImportTexture2DRawDataHDR import, Texture2D texture) {
+            Span2D<color> data = import.AccessRawData();
+            Color[] pixels = texture.GetPixels(0);
+            int width = import.Width;
+            int height = import.Height;
+
+            for (int y = 0; y < height; y++) {
+                int flippedY = height - 1 - y;
+                for (int x = 0; x < width; x++) {
+                    int idx = x + flippedY * width;
+                    Color px = pixels[idx];
+                    data[x, y] = new color {
+                        r = px.r,
+                        g = px.g,
+                        b = px.b,
+                        a = px.a
+                    };
                 }
+            }
+        }
+
+        private void FillImportSDRTexture2DRawData(ImportTexture2DRawData import, Texture2D texture) {
+            Span2D<color32> data = import.AccessRawData();
+            Color[] pixels = texture.GetPixels(0);
+            int width = import.Width;
+            int height = import.Height;
+            
+            for (int y = 0; y < height; y++) {
+                int flippedY = height - 1 - y;
+                for (int x = 0; x < width; x++) {
+                    int idx = x + flippedY * width;
+                    Color32 px = pixels[idx];
+                    data[x, y] = new color32 {
+                        r = px.r,
+                        g = px.g,
+                        b = px.b,
+                        a = px.a
+                    };
+                }
+            }
+        }
+
+        public async Task<bool> SendTextureToResoLink(GameObject textureObject) {
+            if (textureObject == null) return false;
+            Renderer renderer = textureObject.GetComponent<Renderer>();
+
+            if (renderer == null) return false;
+            if (renderer.sharedMaterials.Length == 0) return false;
+            
+            Material material = renderer.sharedMaterials[0];
+            Texture2D albedoTexture = material.mainTexture as Texture2D;
+
+            if (albedoTexture == null) return false;
+            SetTextureReadable(albedoTexture);
+
+            if (GraphicsFormatUtility.IsHDRFormat(albedoTexture.graphicsFormat)) {
+                return await SendHDRTextureToResoLink(albedoTexture);
+            } else {
+                return await SendSDRTextureToResoLink(albedoTexture);
             }
         }
     }

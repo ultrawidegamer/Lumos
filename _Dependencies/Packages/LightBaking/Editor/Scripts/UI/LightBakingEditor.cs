@@ -23,6 +23,7 @@ public class LightBaking : EditorWindow {
     private ResoLinkHelper resoLinkHelper;
     private MeshXCache meshXCache;
     private GameObject selectedMeshObject;
+    private GameObject selectedTextureObject;
     private string wsUrl = "ws://localhost:5000";
 
     [MenuItem("Tools/Light Baking")]
@@ -58,6 +59,11 @@ public class LightBaking : EditorWindow {
         }
      
         resoLinkConnected = resoLinkHelper.IsConnected();
+
+        if (resoLinkConnected != meshXCache.isConnected && !resoLinkConnected) {
+            EditorUtility.ClearProgressBar();
+        }
+
         meshXCache.isConnected = resoLinkConnected;
 
         CreateConnectionSettingsGUI();
@@ -105,7 +111,6 @@ public class LightBaking : EditorWindow {
     }
 
     private void CreateCacheSettingsGUI() {
-        
         EditorGUILayout.BeginHorizontal();
         GUIContent content = new GUIContent("Cache Settings", cacheDirConnected && dataDirConnected ? cacheConnectIcon : cacheDisconnectIcon);
         showCacheSettings = EditorGUILayout.Foldout(showCacheSettings, content, true);
@@ -136,7 +141,7 @@ public class LightBaking : EditorWindow {
         EditorGUI.EndDisabledGroup();
     }
 
-    private async void CreateLightingGUI() {
+    private void CreateLightingGUI() {
         EditorGUILayout.BeginHorizontal();
         GUIContent content = new GUIContent("Lighting Settings", lightingIcon);
         showLightingSettings = EditorGUILayout.Foldout(showLightingSettings, content, true);
@@ -145,16 +150,43 @@ public class LightBaking : EditorWindow {
         if (showLightingSettings) {
             EditorGUI.indentLevel++;
 
-            selectedMeshObject = (GameObject)EditorGUILayout.ObjectField("Mesh Object", selectedMeshObject, typeof(GameObject), true);
+            GameObject newSelectedMeshObject = (GameObject)EditorGUILayout.ObjectField("Mesh Object", selectedMeshObject, typeof(GameObject), true);
+            if (newSelectedMeshObject != selectedMeshObject) {
+                selectedMeshObject = newSelectedMeshObject;
+            }
 
-            if (GUILayout.Button("Send Selected Mesh to ResoLink")) {              
-                MeshFilter meshFilter = selectedMeshObject.GetComponent<MeshFilter>();
+            if (GUILayout.Button("Send Selected Mesh to ResoLink")) {
+                GameObject meshObj = selectedMeshObject;
+                ResoLinkHelper helper = resoLinkHelper;
+                EditorApplication.delayCall += async () => {
+                    if (meshObj != null && helper != null) {
+                        MeshFilter meshFilter = meshObj.GetComponent<MeshFilter>();
+                        if (await helper.SendUnityMeshToResoLink(meshFilter?.sharedMesh)) {
+                            Debug.Log("Mesh sent successfully!");
+                        } else {
+                            Debug.LogError("Failed to send mesh.");
+                        }
+                    }
+                };
+            }
 
-                if (await resoLinkHelper.SendUnityMeshToResoLink(meshFilter.sharedMesh)) {
-                    Debug.Log("Mesh sent successfully!");
-                } else {
-                    Debug.LogError("Failed to send mesh.");
-                }
+            GameObject newSelectedTextureObject = (GameObject)EditorGUILayout.ObjectField("Texture Object", selectedTextureObject, typeof(GameObject), true);
+            if (newSelectedTextureObject != selectedTextureObject) {
+                selectedTextureObject = newSelectedTextureObject;
+            }
+
+            if (GUILayout.Button("Send Selected Texture to ResoLink")) {
+                GameObject texObj = selectedTextureObject;
+                ResoLinkHelper helper = resoLinkHelper;
+                EditorApplication.delayCall += async () => {
+                    if (texObj != null && helper != null) {
+                        if (await helper.SendTextureToResoLink(texObj)) {
+                            Debug.Log("Texture sent successfully!");
+                        } else {
+                            Debug.LogError("Failed to send texture.");
+                        }
+                    }
+                };
             }
 
             EditorGUI.indentLevel--;
