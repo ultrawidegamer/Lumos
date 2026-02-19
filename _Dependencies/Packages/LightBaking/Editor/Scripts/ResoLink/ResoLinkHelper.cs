@@ -5,13 +5,15 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using ResoMeshXParsing;
+using ResoniteLink;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace LightBakingResoLink {
     public class ResoLinkHelper {
         private static ResoLinkHelper instance;
-        private ResoLinkWebSocket resoLinkWebSocket;
+        public LinkInterface linkInterface;
         private static readonly object lockObj = new object();
         private const int MAX_CONCURRENT_RESOLINK_REQUESTS = 10;
         private const int MAX_CONCURRENT_MESH_DOWNLOADS = 10;
@@ -19,7 +21,8 @@ namespace LightBakingResoLink {
         private SynchronizationContext unityContext = SynchronizationContext.Current;
         private Dictionary<string, SlotData> slotDataLookup = null;
         private Dictionary<string, GameObject> createdObjects = null;
-        private Dictionary<string, ResoLinkComponentResponse> cachedMeshComponentData = new Dictionary<string, ResoLinkComponentResponse>();
+        private Dictionary<string, ComponentData> cachedMeshComponentData = new Dictionary<string, ComponentData>();
+        private CancellationTokenSource cancellation = new CancellationTokenSource();
 
         public static ResoLinkHelper Instance {
             get {
@@ -34,18 +37,15 @@ namespace LightBakingResoLink {
             }
         }
 
-        private ResoLinkHelper() {
-            resoLinkWebSocket = new ResoLinkWebSocket();
-        }
-
         public async Task<bool> ConnectAsync(string url) {
             if (string.IsNullOrEmpty(url)) {
                 return false;
             }
 
             try {
-                await resoLinkWebSocket.Connect(url);
-                return resoLinkWebSocket.IsConnected();
+                linkInterface = new LinkInterface();
+                await linkInterface.Connect(new Uri(url), cancellation.Token);
+                return true;
             } catch (Exception e) {
                 Debug.LogError($"Failed to connect to ResoLink: {e.Message}");
                 return false;
@@ -54,74 +54,40 @@ namespace LightBakingResoLink {
 
         public void Disconnect() {
             try {
-                resoLinkWebSocket.Disconnect();
+                linkInterface.Dispose();
             } catch (Exception e) {
                 Debug.LogError($"Failed to disconnect from ResoLink: {e.Message}");
             }
         }
 
         public bool IsConnected() {
-            return resoLinkWebSocket != null && resoLinkWebSocket.IsConnected();
+            return linkInterface?.IsConnected ?? false;
         }
 
-        public async Task SendAsync<T>(T data) {
-            if (!IsConnected()) return;
-
-            try {
-                await resoLinkWebSocket.Send(data);
-            } catch (Exception e) {
-                Debug.LogError($"Failed to send data to ResoLink: {e.Message}");
-            }
-        }
-
-        public async Task<ResoLinkResponse> ReceiveAsync() {
-            if (!IsConnected()) return null;
-
-            try {
-                return await resoLinkWebSocket.Receive<ResoLinkResponse>();
-            } catch (Exception e) {
-                Debug.LogError($"Failed to receive data from ResoLink: {e.Message}");
-                return null;
-            }
-        }
-
-        public async Task<ResoLinkComponentResponse> ReceiveAsyncComponent() {
-            if (!IsConnected()) return null;
-
-            try {
-                return await resoLinkWebSocket.Receive<ResoLinkComponentResponse>();
-            } catch (Exception e) {
-                Debug.LogError($"Failed to receive data from ResoLink: {e.Message}");
-                return null;
-            }
-        }
-
-        public async Task<ResoLinkResponse> FetchSlot(string id, bool withComponents = false) {
+        public async Task<SlotData> FetchSlot(string id, bool withComponents = false) {
             if (!IsConnected()) return null;
             if (id == null) return null;
 
             try {
-                await SendAsync(new GetSlotMessage() { SlotId = id, IncludeComponentData = withComponents });
-                return await ReceiveAsync();
+                return await linkInterface.GetSlotData(new GetSlot() { SlotID = id, IncludeComponentData = withComponents });
             } catch (Exception e) {
                 Debug.LogError($"Failed to send and receive data from ResoLink: {e.Message}");
                 return null;
             }
         }
 
-        public async Task<ResoLinkComponentResponse> FetchComponent(string id) {
+        public async Task<ComponentData> FetchComponent(string id) {
             if (!IsConnected()) return null;
             if (id == null) return null;
 
             string lowerId = id.ToLowerInvariant();
 
             try {
-                if (cachedMeshComponentData.TryGetValue(lowerId, out ResoLinkComponentResponse cachedResponse)) {
+                if (cachedMeshComponentData.TryGetValue(lowerId, out ComponentData cachedResponse)) {
                     return cachedResponse;
                 }            
                 
-                await SendAsync(new GetComponentMessage() { ComponentId = id });
-                cachedMeshComponentData[lowerId] = await ReceiveAsyncComponent();;
+                cachedMeshComponentData[lowerId] = await linkInterface.GetComponentData(new GetComponent() { ComponentID = id });
 
                 return cachedMeshComponentData[lowerId];
             } catch (Exception e) {
@@ -141,47 +107,54 @@ namespace LightBakingResoLink {
             "[FrooxEngine]FrooxEngine.Protoflux.ProtoFluxNodeVisual"
         };
 
-        private ComponentData GetMeshRenderer(SlotData slotData) {
-            return slotData?.Components?.FirstOrDefault(c => c.Type == "[FrooxEngine]FrooxEngine.MeshRenderer");
+        private ResoniteLink.Component GetMeshRenderer(SlotData slotData) {
+            return slotData.Data.Components.FirstOrDefault(c => c.ComponentType == "[FrooxEngine]FrooxEngine.MeshRenderer");
         }
 
-        private Task FetchChildSlotTask(SemaphoreSlim throttler, SlotData slot, ConcurrentDictionary<string, SlotInfo> allSlots, ConcurrentDictionary<string, SlotInfo> slotsWithMeshRenderer, List<string> parentPath) { 
+        private Task FetchChildSlotTask(
+            SemaphoreSlim throttler,
+            Slot slot,
+            ConcurrentDictionary<string, SlotInfo> allSlots,
+            ConcurrentDictionary<string, SlotInfo> slotsWithMeshRenderer,
+            List<string> parentPath) {
             return Task.Run(async () => {
                 await throttler.WaitAsync();
                 try {
                     if (!IsConnected()) return;
 
-                    ResoLinkResponse slotData = await FetchSlot(slot.Id, true);
+                    SlotData slotData = await FetchSlot(slot.ID, true);
 
-                    if (slotData == null) {
-                        Debug.LogWarning($"Failed to fetch data for slot ID: {slot.Id}");
-                        return;
-                    }
+                    if (slotData == null) return;
+                    if (slotData.Data == null) return;
 
-                    ComponentData[] components = slotData.Data?.Components;
-                    bool hasBlacklistedComponent = components?.Any(c => BlacklistedComponents.Contains(c.Type)) ?? false;
+                    List<ResoniteLink.Component> components = slotData.Data.Components;
+
+                    bool hasBlacklistedComponent = components?.Any(c => BlacklistedComponents.Contains(c.ComponentType)) ?? false;
 
                     if (hasBlacklistedComponent) return;
 
                     string slotName = slotData.Data?.Name?.Value ?? "Unknown";
-                    string slotId = slotData.Data?.Id ?? "";
+                    string slotId = slotData.Data.ID ?? "";
                     string pathSegment = $"{slotName} ({slotId})";
                     List<string> currentPath = new List<string>(parentPath) { pathSegment };
 
-                    ComponentData meshRenderer = GetMeshRenderer(slotData.Data);
-                    string meshID = meshRenderer?.Members?["Mesh"]?.TargetId;
+                    ResoniteLink.Component meshRenderer = GetMeshRenderer(slotData);
 
-                    allSlots[slotData.Data.Id] = new SlotInfo {
-                        Data = slotData.Data,
+                    Member meshMember = null;
+                    meshRenderer?.Members?.TryGetValue("Mesh", out meshMember);
+                    string meshID = (meshMember as Reference)?.TargetID;
+
+                    allSlots[slotData.Data.ID] = new SlotInfo {
+                        Data = slotData,
                         Path = currentPath.ToArray(),
                         MeshId = meshID
                     };
 
                     if (meshRenderer != null && !string.IsNullOrEmpty(meshID)) {
-                        slotsWithMeshRenderer[slotData.Data.Id] = allSlots[slotData.Data.Id];
+                        slotsWithMeshRenderer[slotData.Data.ID] = allSlots[slotData.Data.ID];
 
                         unityContext?.Post(_ => {
-                            CreateUnityHierarchyPart(allSlots[slotData.Data.Id]);
+                            CreateUnityHierarchyPart(allSlots[slotData.Data.ID]);
                         }, null);
                     }
 
@@ -192,19 +165,24 @@ namespace LightBakingResoLink {
             });
         }
 
-        private Task FetchAllSlots(ResoLinkResponse rootSlotData, ConcurrentDictionary<string, SlotInfo> allSlots, ConcurrentDictionary<string, SlotInfo> slotsWithMeshRenderer, List<string> parentPath) {
-            SlotData[] children = rootSlotData?.Data?.Children;
+        private Task FetchAllSlots(
+            SlotData rootSlotData,
+            ConcurrentDictionary<string, SlotInfo> allSlots,
+            ConcurrentDictionary<string, SlotInfo> slotsWithMeshRenderer,
+            List<string> parentPath) {
+            if (rootSlotData == null) return null;
+            if (rootSlotData.Data == null) return null;
 
-            if (children == null || children.Length == 0) {
-                return null;
-            }
+            List<Slot> children = rootSlotData.Data.Children;
+
+            if (children == null)  return null;
+            if (children.Count == 0) return null;
 
             SemaphoreSlim throttler = new SemaphoreSlim(MAX_CONCURRENT_RESOLINK_REQUESTS);
             List<Task> tasks = new List<Task>();
 
-            foreach (SlotData slot in children) {
+            foreach (Slot slot in children) {
                 if (!IsConnected()) return null;
-
                 tasks.Add(FetchChildSlotTask(throttler, slot, allSlots, slotsWithMeshRenderer, parentPath));
             }
 
@@ -215,31 +193,30 @@ namespace LightBakingResoLink {
             if (!IsConnected()) return;
 
             try {
-                ResoLinkResponse rootSlotData = await FetchSlot("Root", true);
+                SlotData rootSlotData = await FetchSlot("Root", true);
 
-                if (rootSlotData == null) {
-                    Debug.LogWarning("Received empty root slot data from ResoLink");
-                    return;
-                }
+                if (rootSlotData == null) return;
+                if (rootSlotData.Data == null) return;
+
 
                 ConcurrentDictionary<string, SlotInfo> allSlots = new ConcurrentDictionary<string, SlotInfo>();
                 ConcurrentDictionary<string, SlotInfo> slotsWithMeshRenderer = new ConcurrentDictionary<string, SlotInfo>();
 
                 string rootName = rootSlotData.Data?.Name?.Value ?? "Root";
-                string rootId = rootSlotData.Data?.Id ?? "";
+                string rootId = rootSlotData.Data.ID ?? "";
                 string rootPathSegment = $"{rootName} ({rootId})";
 
-                ComponentData rootMeshRenderer = GetMeshRenderer(rootSlotData.Data);
+                ResoniteLink.Component rootMeshRenderer = GetMeshRenderer(rootSlotData);
 
-                allSlots[rootSlotData.Data.Id] = new SlotInfo {
-                    Data = rootSlotData.Data,
+                allSlots[rootSlotData.Data.ID] = new SlotInfo {
+                    Data = rootSlotData,
                     Path = new string[] { rootPathSegment },
-                    MeshId = rootMeshRenderer?.Id
+                    MeshId = rootMeshRenderer?.ID
                 };
 
                 createdObjects = new Dictionary<string, GameObject>();
                 Task slots = FetchAllSlots(rootSlotData, allSlots, slotsWithMeshRenderer, new List<string> { rootPathSegment });
-                
+
                 float fakeProgress = 0f;
 
                 while (!slots.IsCompleted) {
@@ -249,7 +226,7 @@ namespace LightBakingResoLink {
                     progressCallback?.Invoke("Retrieving Data from ResoLink...", fakeProgress);
                     await Task.Delay(50);
                 }
-                
+
                 progressCallback?.Invoke("Retrieving Mesh Renderers", 1f);
 
                 hierarchyData = new HierarchyData {
@@ -263,10 +240,7 @@ namespace LightBakingResoLink {
 
         public void CreateUnityHierarchyPart(SlotInfo slotInfo) {         
             try {
-                if (!IsConnected()) {
-                    Debug.Log("Disconnected during hierarchy creation");
-                    return;
-                }
+                if (!IsConnected()) return;
                     
                 if (slotInfo == null || slotInfo.Path == null || slotInfo.Path.Length == 0) return;
 
@@ -334,16 +308,18 @@ namespace LightBakingResoLink {
 
                     GameObject obj = createdObjects[path];
                     if (slotDataLookup.TryGetValue(path, out SlotData slotData)) {
-                        if (slotData.Position?.Value != null) {
-                            Vector3 value = slotData.Position.Value;
+                        obj.SetActive(slotData.Data.IsActive.Value);
+
+                        if (slotData.Data.Position?.Value != null) {
+                            float3 value = slotData.Data.Position.Value;
                             obj.transform.localPosition = new Vector3(value.x, value.y, value.z);
                         }
-                        if (slotData.Rotation?.Value != null) {
-                            Vector4 value = slotData.Rotation.Value;
+                        if (slotData.Data.Rotation?.Value != null) {
+                            floatQ value = slotData.Data.Rotation.Value;
                             obj.transform.localRotation = new Quaternion(value.x, value.y, value.z, value.w);
                         }
-                        if (slotData.Scale?.Value != null) {
-                            Vector3 value = slotData.Scale.Value;
+                        if (slotData.Data.Scale?.Value != null) {
+                            float3 value = slotData.Data.Scale.Value;
                             obj.transform.localScale = new Vector3(value.x, value.y, value.z);
                         }
                     }
@@ -373,20 +349,30 @@ namespace LightBakingResoLink {
                 await Task.WhenAll(batch.Select(async item => {
                     try {
                         SlotInfo slotInfo = item.Item2;
-
                         if (!IsConnected()) return;
-                        if (slotInfo == null || slotInfo.Path == null || slotInfo.Path.Length == 0 || slotInfo.MeshId == null) return;
+                        if (slotInfo == null || slotInfo.Path == null || slotInfo.Path.Length == 0 || string.IsNullOrEmpty(slotInfo.MeshId)) return;
 
-                        GameObject targetObject = createdObjects[string.Join("/", slotInfo.Path)];
-                        ResoLinkComponentResponse component = await FetchComponent(slotInfo.MeshId);
+                        string pathKey = string.Join("/", slotInfo.Path);
+                        GameObject targetObject = null;
+                        createdObjects.TryGetValue(pathKey, out targetObject);
 
-                        if (component?.Data?.Type != "[FrooxEngine]FrooxEngine.StaticMesh" || component?.Data?.Members?["URL"]?.Value == null) return;
+                        ComponentData component = await FetchComponent(slotInfo.MeshId);
+                        if (component == null || component.Data == null) return;
 
-                        Mesh mesh = await AcquireMesh(component?.Data?.Members?["URL"]?.Value);
+                        Member urlMember = null;
+                        component.Data.Members.TryGetValue("URL", out urlMember);
+                        string meshUri = (urlMember as Field_Uri)?.Value?.ToString();
 
+                        ResoniteLink.Component meshRenderer = GetMeshRenderer(slotInfo.Data);
+
+                        meshRenderer.Members.TryGetValue("Enabled", out Member enabled);
+
+                        if (urlMember == null || meshUri == null) return;
+
+                        Mesh mesh = await AcquireMesh(meshUri);
                         if (mesh == null) return;
 
-                        MeshXConverter.ApplyMeshToGameObject(mesh, targetObject);
+                        MeshXConverter.ApplyMeshToGameObject(mesh, targetObject, (enabled as Field_bool).Value);
                         lastSuccessfulObject = targetObject;
                     } catch (Exception e) {
                         Debug.LogError($"Error downloading/applying mesh for slot {item.Item1}: {e.Message}\n{e.StackTrace}");
@@ -421,6 +407,131 @@ namespace LightBakingResoLink {
             } catch (Exception e) {
                 Debug.LogError($"Error downloading and converting MeshX {meshId}: {e.Message}");
                 return null;
+            }
+        }
+
+        public async Task<bool> SendUnityMeshToResoLink(Mesh mesh) {
+            if (!IsConnected() || mesh == null) return false;
+
+            try {
+                ImportMeshRawData importData = new ImportMeshRawData {
+                    VertexCount = mesh.vertexCount,
+                    HasNormals = mesh.normals != null && mesh.normals.Length == mesh.vertexCount,
+                    HasTangents = mesh.tangents != null && mesh.tangents.Length == mesh.vertexCount,
+                    HasColors = mesh.colors != null && mesh.colors.Length == mesh.vertexCount,
+                    UV_Channel_Dimensions = new List<int>(),
+                    Submeshes = new List<SubmeshRawData>()
+                };
+
+                if (mesh.uv != null && mesh.uv.Length == mesh.vertexCount) importData.UV_Channel_Dimensions.Add(2);
+                if (mesh.uv2 != null && mesh.uv2.Length == mesh.vertexCount) importData.UV_Channel_Dimensions.Add(2);
+                if (mesh.uv3 != null && mesh.uv3.Length == mesh.vertexCount) importData.UV_Channel_Dimensions.Add(2);
+                if (mesh.uv4 != null && mesh.uv4.Length == mesh.vertexCount) importData.UV_Channel_Dimensions.Add(2);
+
+                List<int> submeshIndexes = new List<int>();
+                for (int s = 0; s < mesh.subMeshCount; s++) {
+                    SubMeshDescriptor submeshDesc = mesh.GetSubMesh(s);
+
+                    switch (submeshDesc.topology) {
+                        case MeshTopology.Triangles:
+                            TriangleSubmeshRawData triangleSubmesh = new TriangleSubmeshRawData {
+                                TriangleCount = submeshDesc.indexCount / 3
+                            };
+                            importData.Submeshes.Add(triangleSubmesh);
+                            submeshIndexes.Add(s);
+                            break;
+                        case MeshTopology.Points:
+                            PointSubmeshRawData pointSubmesh = new PointSubmeshRawData {
+                                PointCount = submeshDesc.indexCount
+                            };
+                            importData.Submeshes.Add(pointSubmesh);
+                            submeshIndexes.Add(s);
+                            break;
+                        default:
+                            Debug.LogWarning($"Unsupported submesh topology: {submeshDesc.topology}");
+                            break;
+                    }
+                }
+
+                if (importData.Submeshes.Count == 0) {
+                    Debug.LogError("Mesh must have at least one supported submesh (triangles or points).");
+                    return false;
+                }
+
+                importData.AllocateBuffer();
+
+                FillImportMeshRawDataBuffers(importData, mesh);
+
+                for (int s = 0; s < importData.Submeshes.Count; s++) {
+                    SubmeshRawData submesh = importData.Submeshes[s];
+                    int[] indices = mesh.GetIndices(submeshIndexes[s]);
+                    for (int i = 0; i < indices.Length; i++) {
+                        submesh.Indices[i] = indices[i];
+                    }
+                }
+
+                AssetData data = await linkInterface.ImportMesh(importData);;               
+
+                Debug.Log($"Mesh import result: {data?.AssetURL}");
+
+                return !string.IsNullOrEmpty(data?.AssetURL?.ToString());
+            } catch (Exception) {
+                return false;
+            }
+        }
+
+        private static void FillImportMeshRawDataBuffers(ImportMeshRawData importData, Mesh mesh) {
+            var positions = importData.Positions;
+            var meshVertices = mesh.vertices;
+
+            for (int i = 0; i < mesh.vertexCount; i++) {
+                positions[i] = new float3 { x = meshVertices[i].x, y = meshVertices[i].y, z = meshVertices[i].z };
+            }
+
+            if (importData.HasNormals) {
+                var normals = importData.Normals;
+                var meshNormals = mesh.normals;
+                for (int i = 0; i < mesh.vertexCount; i++) {
+                    normals[i] = new float3 { x = meshNormals[i].x, y = meshNormals[i].y, z = meshNormals[i].z };
+                }
+            }
+
+            if (importData.HasTangents) {
+                var tangents = importData.Tangents;
+                var meshTangents = mesh.tangents;
+                for (int i = 0; i < mesh.vertexCount; i++) { 
+                    tangents[i] = new float4 {
+                        x = meshTangents[i].x,
+                        y = meshTangents[i].y,
+                        z = meshTangents[i].z,
+                        w = meshTangents[i].w
+                    };
+                }
+            }
+
+            if (importData.HasColors) {
+                var colors = importData.Colors;
+                var meshColors = mesh.colors;
+                for (int i = 0; i < mesh.vertexCount; i++) {
+                    colors[i] = new color {
+                        r = meshColors[i].r,
+                        g = meshColors[i].g,
+                        b = meshColors[i].b,
+                        a = meshColors[i].a
+                    };
+                }
+            }
+
+            int uvIndex = 0;
+            Vector2[][] meshUVs = { mesh.uv, mesh.uv2, mesh.uv3, mesh.uv4 };
+
+            foreach (Vector2[] uvSet in meshUVs) {
+                if (uvSet != null && uvSet.Length == mesh.vertexCount) {
+                    var uvs = importData.AccessUV_2D(uvIndex++);
+                    for (int i = 0; i < mesh.vertexCount; i++) {
+                        uvs[i] = new float2 { x = uvSet[i].x, y = uvSet[i].y };
+                    }
+                }
             }
         }
     }

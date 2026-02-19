@@ -22,6 +22,7 @@ public class LightBaking : EditorWindow {
     private Texture2D lightingIcon;
     private ResoLinkHelper resoLinkHelper;
     private MeshXCache meshXCache;
+    private GameObject selectedMeshObject;
     private string wsUrl = "ws://localhost:5000";
 
     [MenuItem("Tools/Light Baking")]
@@ -135,7 +136,7 @@ public class LightBaking : EditorWindow {
         EditorGUI.EndDisabledGroup();
     }
 
-    private void CreateLightingGUI() {
+    private async void CreateLightingGUI() {
         EditorGUILayout.BeginHorizontal();
         GUIContent content = new GUIContent("Lighting Settings", lightingIcon);
         showLightingSettings = EditorGUILayout.Foldout(showLightingSettings, content, true);
@@ -143,11 +144,19 @@ public class LightBaking : EditorWindow {
 
         if (showLightingSettings) {
             EditorGUI.indentLevel++;
-            for (int i = 0; i < 5; i++) {
-                if (GUILayout.Button("Placeholder Button")) {
-                    Debug.Log("Try to retrieve mesh from ResoLink");
+
+            selectedMeshObject = (GameObject)EditorGUILayout.ObjectField("Mesh Object", selectedMeshObject, typeof(GameObject), true);
+
+            if (GUILayout.Button("Send Selected Mesh to ResoLink")) {              
+                MeshFilter meshFilter = selectedMeshObject.GetComponent<MeshFilter>();
+
+                if (await resoLinkHelper.SendUnityMeshToResoLink(meshFilter.sharedMesh)) {
+                    Debug.Log("Mesh sent successfully!");
+                } else {
+                    Debug.LogError("Failed to send mesh.");
                 }
             }
+
             EditorGUI.indentLevel--;
         }
     }

@@ -86,7 +86,7 @@ namespace ResoMeshXParsing {
             }
         }
 
-        public static void ApplyMeshToGameObject(Mesh mesh, GameObject targetObject) {
+        public static void ApplyMeshToGameObject(Mesh mesh, GameObject targetObject, bool enableRenderer) {
             MeshFilter meshFilter = targetObject.GetComponent<MeshFilter>();
             if (meshFilter == null) { 
                 meshFilter = targetObject.AddComponent<MeshFilter>();
@@ -96,6 +96,7 @@ namespace ResoMeshXParsing {
             MeshRenderer meshRenderer = targetObject.GetComponent<MeshRenderer>();
             if (meshRenderer == null) {
                 meshRenderer = targetObject.AddComponent<MeshRenderer>();
+                meshRenderer.enabled = enableRenderer;
             }
 
             int subMeshCount = mesh != null ? mesh.subMeshCount : 1;
@@ -110,12 +111,6 @@ namespace ResoMeshXParsing {
                 sharedMaterials[i] = new Material(shader);
             }
             meshRenderer.sharedMaterials = sharedMaterials;
-        }
-
-        public static GameObject CreateGameObjectWithMesh(Mesh mesh, string name = "MeshX_Object") {
-            GameObject obj = new GameObject(name);
-            ApplyMeshToGameObject(mesh, obj);
-            return obj;
         }
     }
 }
