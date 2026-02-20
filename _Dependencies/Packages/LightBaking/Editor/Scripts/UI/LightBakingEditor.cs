@@ -1,15 +1,18 @@
 using System;
+using System.Reflection.Emit;
 using System.Threading.Tasks;
 using LightBakingResoLink;
 using ResoMeshXParsing;
+using Unity.VisualScripting.YamlDotNet.Core.Tokens;
 using UnityEditor;
 using UnityEngine;
 
 public class LightBaking : EditorWindow {
-    private bool showConnectionSettings = true;
-    private bool showCacheSettings = true;
-    private bool showActionSettings = true;
-    private bool showLightingSettings = true;
+    private bool showConnectionSettings = false;
+    private bool showCacheSettings = false;
+    private bool showActionSettings = false;
+    private bool showLightingSettings = false;
+    private bool showTempSettings = true;
     private bool resoLinkConnected = false;
     private bool cacheDirConnected = false;
     private bool dataDirConnected = false;
@@ -25,6 +28,16 @@ public class LightBaking : EditorWindow {
     private GameObject selectedMeshObject;
     private GameObject selectedTextureObject;
     private string wsUrl = "ws://localhost:5000";
+    private int directSamples = 32;
+    private int indirectSamples = 128;
+    private int environmentSamples = 64;
+    private int maxBounces = 2;
+    private string[] denoiserOptions = new[] { "OIDN", "Optix" };
+    private string[] lightmapSizeOptions = new[] { "32", "64", "128", "256", "512", "1024", "2048", "4096" };
+    private int denoiserIndex = 0;
+    private int lightmapSizeIndex = 5;
+    private int lightmapResolution = 40;
+    private bool enableAdvancedSettings = false;
 
     [MenuItem("Tools/Light Baking")]
     public static void ShowWindow() {
@@ -69,6 +82,7 @@ public class LightBaking : EditorWindow {
         CreateConnectionSettingsGUI();
         CreateCacheSettingsGUI();
         CreateActionsGUI();
+        CreateTempGUI();
         CreateLightingGUI();
     }
 
@@ -141,13 +155,13 @@ public class LightBaking : EditorWindow {
         EditorGUI.EndDisabledGroup();
     }
 
-    private void CreateLightingGUI() {
+    private void CreateTempGUI() {
         EditorGUILayout.BeginHorizontal();
-        GUIContent content = new GUIContent("Lighting Settings", lightingIcon);
-        showLightingSettings = EditorGUILayout.Foldout(showLightingSettings, content, true);
+        GUIContent content = new GUIContent("Temp Settings", lightingIcon);
+        showTempSettings = EditorGUILayout.Foldout(showTempSettings, content, true);
         EditorGUILayout.EndHorizontal();
 
-        if (showLightingSettings) {
+        if (showTempSettings) {
             EditorGUI.indentLevel++;
 
             GameObject newSelectedMeshObject = (GameObject)EditorGUILayout.ObjectField("Mesh Object", selectedMeshObject, typeof(GameObject), true);
@@ -187,6 +201,61 @@ public class LightBaking : EditorWindow {
                         }
                     }
                 };
+            }
+
+            EditorGUI.indentLevel--;
+        }
+    }
+
+    private void CreateCustomPO2Slider(string label, int min, int max, ref int output) {
+        int minExp = (int)Mathf.Log(min, 2);
+        int maxExp = (int)Mathf.Log(max, 2);
+        int currentExp = (int)Mathf.Log(Mathf.Clamp(output, min, max), 2);
+
+        EditorGUILayout.BeginHorizontal();
+        EditorGUILayout.LabelField(label, GUILayout.Width(150));
+        int sliderExp = (int)GUILayout.HorizontalSlider(currentExp, minExp, maxExp, GUILayout.ExpandWidth(true));
+        GUILayout.Space(-10);
+        string tempString = EditorGUILayout.TextField(output.ToString(), GUILayout.ExpandWidth(false), GUILayout.Width(75));
+        EditorGUILayout.EndHorizontal();
+
+        int newValue = output;
+        if (sliderExp != currentExp) {
+            newValue = (int)Mathf.Pow(2, sliderExp);
+        } else if (int.TryParse(tempString, out int parsedInt)) {
+            newValue = Mathf.ClosestPowerOfTwo(parsedInt);
+        }
+
+        output = Mathf.Clamp(newValue, min, max);
+    }
+
+    private void CreateLightingGUI() {
+        EditorGUILayout.BeginHorizontal();
+        GUIContent content = new GUIContent("Lighting Settings", lightingIcon);
+        showLightingSettings = EditorGUILayout.Foldout(showLightingSettings, content, true);
+        EditorGUILayout.EndHorizontal();
+
+        if (showLightingSettings) {
+            EditorGUI.indentLevel++;
+
+            CreateCustomPO2Slider("Direct Samples", 1, 1024, ref directSamples);
+            CreateCustomPO2Slider("Indirect Samples", 1, 8192, ref indirectSamples);
+            CreateCustomPO2Slider("Environment Samples", 1, 2048, ref environmentSamples);
+
+            maxBounces = EditorGUILayout.IntField("Max Bounces", maxBounces);
+            denoiserIndex = EditorGUILayout.Popup("Denoiser", denoiserIndex, denoiserOptions);
+            lightmapResolution = EditorGUILayout.IntField("Lightmap Resolution", lightmapResolution);
+            lightmapSizeIndex = EditorGUILayout.Popup("Max Lightmap Size", lightmapSizeIndex, lightmapSizeOptions);
+            enableAdvancedSettings = EditorGUILayout.Toggle("Advanced Settings", enableAdvancedSettings);
+
+            if (enableAdvancedSettings) {
+                EditorGUI.indentLevel++;
+                EditorGUILayout.LabelField("Advanced settings go here...");
+                EditorGUI.indentLevel--;
+            }
+
+            if (GUILayout.Button("Bake Lighting")) {
+                Debug.Log("Bake Lighting triggered!");
             }
 
             EditorGUI.indentLevel--;
