@@ -393,6 +393,8 @@ namespace LightBakingResoLink {
                 Mesh mesh = MeshXConverter.ConvertToUnityMesh(meshXData);
                 if (mesh == null) return null;
                 
+                Unwrapping.GenerateSecondaryUVSet(mesh);
+
                 MeshXCache.Instance.AddToMeshDataCache(meshId, mesh);
                 return mesh;
             } catch (Exception e) {

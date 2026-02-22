@@ -1,4 +1,3 @@
-using UnityEditor;
 using UnityEngine;
 
 namespace ResoMeshXParsing {
@@ -47,8 +46,6 @@ namespace ResoMeshXParsing {
             if (!meshXData.HasTangents && meshXData.UV2DChannels.Count > 0) {
                 mesh.RecalculateTangents();
             }
-
-            Unwrapping.GenerateSecondaryUVSet(mesh);
 
             return mesh;
         }
