@@ -20,9 +20,9 @@ namespace LightBakingResoLink {
         private const int MAX_CONCURRENT_MESH_DOWNLOADS = 10;
         public HierarchyData hierarchyData = null;
         private SynchronizationContext unityContext = SynchronizationContext.Current;
-        private Dictionary<string, SlotData> slotDataLookup = null;
-        private Dictionary<string, GameObject> createdObjects = null;
-        private Dictionary<string, ComponentData> cachedMeshComponentData = new Dictionary<string, ComponentData>();
+        private ConcurrentDictionary<string, SlotData> slotDataLookup = new ConcurrentDictionary<string, SlotData>();
+        private ConcurrentDictionary<string, GameObject> createdObjects = new ConcurrentDictionary<string, GameObject>();
+        private ConcurrentDictionary<string, ComponentData> cachedMeshComponentData = new ConcurrentDictionary<string, ComponentData>();
         private CancellationTokenSource cancellation = new CancellationTokenSource();
 
         public static ResoLinkHelper Instance {
@@ -83,18 +83,13 @@ namespace LightBakingResoLink {
 
             string lowerId = id.ToLowerInvariant();
 
-            try {
-                if (cachedMeshComponentData.TryGetValue(lowerId, out ComponentData cachedResponse)) {
-                    return cachedResponse;
-                }            
-                
-                cachedMeshComponentData[lowerId] = await linkInterface.GetComponentData(new GetComponent() { ComponentID = id });
-
-                return cachedMeshComponentData[lowerId];
-            } catch (Exception e) {
-                Debug.LogError($"Failed to send and receive data from ResoLink: {e.Message}");
-                return null;
+            if (cachedMeshComponentData.TryGetValue(lowerId, out var cached)) {
+                return cached;
             }
+
+            ComponentData component = await linkInterface.GetComponentData(new GetComponent() { ComponentID = id });
+            cachedMeshComponentData.TryAdd(lowerId, component);
+            return component;
         }
 
         private static readonly HashSet<string> BlacklistedComponents = new HashSet<string> {
@@ -215,7 +210,7 @@ namespace LightBakingResoLink {
                     MeshId = rootMeshRenderer?.ID
                 };
 
-                createdObjects = new Dictionary<string, GameObject>();
+                createdObjects = new ConcurrentDictionary<string, GameObject>();
                 Task slots = FetchAllSlots(rootSlotData, allSlots, slotsWithMeshRenderer, new List<string> { rootPathSegment });
 
                 float fakeProgress = 0f;
@@ -254,18 +249,13 @@ namespace LightBakingResoLink {
                     string pathSegment = slotInfo.Path[i];
                     currentPath = i == 0 ? pathSegment : currentPath + "/" + pathSegment;
 
-                    if (!createdObjects.ContainsKey(currentPath)) {
+                    currentObject = createdObjects.GetOrAdd(currentPath, _ => {
                         GameObject newObject = new GameObject(pathSegment);
-                            
                         if (currentObject != null) {
                             newObject.transform.SetParent(currentObject.transform, false);
                         }
-                            
-                        createdObjects[currentPath] = newObject;
-                        currentObject = newObject;
-                    } else {
-                        currentObject = createdObjects[currentPath];
-                    }
+                        return newObject;
+                    });
                 }
             } catch (Exception e) {
                 Debug.LogError($"Failed to create Unity Hierarchy: {e.Message}");
@@ -275,7 +265,7 @@ namespace LightBakingResoLink {
         public Task BuildLookupTables(Action<string, float> progressCallback = null) {
             try {
                 progressCallback?.Invoke("Building lookup tables...", 0f);
-                slotDataLookup = new Dictionary<string, SlotData>();
+                slotDataLookup = new ConcurrentDictionary<string, SlotData>();
 
                 int counter = 0;
                 foreach ((string, SlotInfo) slot in hierarchyData.AllSlots) {
@@ -556,6 +546,8 @@ namespace LightBakingResoLink {
         }
 
         private async Task<bool> SendHDRTextureToResoLink(Texture2D texture) {
+            if (!IsConnected()) return false;
+
             ImportTexture2DRawDataHDR import = new ImportTexture2DRawDataHDR {
                 Width = texture.width,
                 Height = texture.height
@@ -570,6 +562,8 @@ namespace LightBakingResoLink {
         }
 
         private async Task<bool> SendSDRTextureToResoLink(Texture2D texture) {
+            if (!IsConnected()) return false;
+
             ImportTexture2DRawData import = new ImportTexture2DRawData {
                 Width = texture.width,
                 Height = texture.height
@@ -625,7 +619,20 @@ namespace LightBakingResoLink {
             }
         }
 
-        public async Task<bool> SendTextureToResoLink(GameObject textureObject) {
+        public async Task<bool> SendTextureToResoLink(Texture2D texture) {
+            if (!IsConnected()) return false;
+            if (texture == null) return false;
+            SetTextureReadable(texture);
+
+            if (GraphicsFormatUtility.IsHDRFormat(texture.graphicsFormat)) {
+                return await SendHDRTextureToResoLink(texture);
+            } else {
+                return await SendSDRTextureToResoLink(texture);
+            }
+        }
+
+        public async Task<bool> SendTextureToResoLinkViaObject(GameObject textureObject) {
+            if (!IsConnected()) return false;
             if (textureObject == null) return false;
             Renderer renderer = textureObject.GetComponent<Renderer>();
 
@@ -635,14 +642,7 @@ namespace LightBakingResoLink {
             Material material = renderer.sharedMaterials[0];
             Texture2D albedoTexture = material.mainTexture as Texture2D;
 
-            if (albedoTexture == null) return false;
-            SetTextureReadable(albedoTexture);
-
-            if (GraphicsFormatUtility.IsHDRFormat(albedoTexture.graphicsFormat)) {
-                return await SendHDRTextureToResoLink(albedoTexture);
-            } else {
-                return await SendSDRTextureToResoLink(albedoTexture);
-            }
+            return await SendTextureToResoLink(albedoTexture);
         }
     }
 }

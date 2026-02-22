@@ -1,3 +1,4 @@
+using UnityEditor;
 using UnityEngine;
 
 namespace ResoMeshXParsing {
@@ -29,7 +30,7 @@ namespace ResoMeshXParsing {
                 mesh.SetColors(meshXData.Colors);
             }
 
-            SetUVChannels(mesh, meshXData);
+            SetUVFirstChannel(mesh, meshXData);
 
             mesh.subMeshCount = meshXData.Submeshes.Count;
             for (int i = 0; i < meshXData.Submeshes.Count; i++) {
@@ -47,27 +48,27 @@ namespace ResoMeshXParsing {
                 mesh.RecalculateTangents();
             }
 
+            Unwrapping.GenerateSecondaryUVSet(mesh);
+
             return mesh;
         }
 
-        private static void SetUVChannels(Mesh mesh, MeshXData meshXData) {
+        private static void SetUVFirstChannel(Mesh mesh, MeshXData meshXData) {
             int channel2D = 0;
             int channel3D = 0;
             int channel4D = 0;
 
-            for (int i = 0; i < meshXData.UVDimensions.Length; i++) {
-                int dimension = meshXData.UVDimensions[i];
+            int dimension = meshXData.UVDimensions[0];
 
-                if (dimension == 2 && channel2D < meshXData.UV2DChannels.Count) {
-                    mesh.SetUVs(i, meshXData.UV2DChannels[channel2D]);
-                    channel2D++;
-                } else if (dimension == 3 && channel3D < meshXData.UV3DChannels.Count) {
-                    mesh.SetUVs(i, meshXData.UV3DChannels[channel3D]);
-                    channel3D++;
-                } else if (dimension == 4 && channel4D < meshXData.UV4DChannels.Count) {
-                    mesh.SetUVs(i, meshXData.UV4DChannels[channel4D]);
-                    channel4D++;
-                }
+            if (dimension == 2 && channel2D < meshXData.UV2DChannels.Count) {
+                mesh.SetUVs(0, meshXData.UV2DChannels[channel2D]);
+                channel2D++;
+            } else if (dimension == 3 && channel3D < meshXData.UV3DChannels.Count) {
+                mesh.SetUVs(0, meshXData.UV3DChannels[channel3D]);
+                channel3D++;
+            } else if (dimension == 4 && channel4D < meshXData.UV4DChannels.Count) {
+                mesh.SetUVs(0, meshXData.UV4DChannels[channel4D]);
+                channel4D++;
             }
         }
 
@@ -97,6 +98,14 @@ namespace ResoMeshXParsing {
             if (meshRenderer == null) {
                 meshRenderer = targetObject.AddComponent<MeshRenderer>();
                 meshRenderer.enabled = enableRenderer;
+
+                GameObjectUtility.SetStaticEditorFlags(
+                    targetObject,
+                    GameObjectUtility.GetStaticEditorFlags(targetObject) 
+                    | StaticEditorFlags.ContributeGI
+                );
+                
+                meshRenderer.receiveGI = ReceiveGI.Lightmaps;
             }
 
             int subMeshCount = mesh != null ? mesh.subMeshCount : 1;

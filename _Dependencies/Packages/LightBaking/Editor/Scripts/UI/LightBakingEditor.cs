@@ -227,7 +227,7 @@ public class LightBaking : EditorWindow {
                 ResoLinkHelper helper = resoLinkHelper;
                 EditorApplication.delayCall += async () => {
                     if (texObj != null && helper != null) {
-                        if (await helper.SendTextureToResoLink(texObj)) {
+                        if (await helper.SendTextureToResoLinkViaObject(texObj)) {
                             Debug.Log("Texture sent successfully!");
                         } else {
                             Debug.LogError("Failed to send texture.");
@@ -280,6 +280,8 @@ public class LightBaking : EditorWindow {
     }
 
     private void CreateLightingGUI() {
+        EditorGUI.BeginDisabledGroup(Lightmapping.isRunning);
+
         EditorGUILayout.BeginHorizontal();
         showLightingSettings = EditorGUILayout.Foldout(showLightingSettings, new GUIContent("Lighting Settings", lightingIcon), true);
         EditorGUILayout.EndHorizontal();
@@ -359,7 +361,8 @@ public class LightBaking : EditorWindow {
 
             if (GUILayout.Button("Bake Lighting")) {
                 UpdateLightingSettings();
-                if (Lightmapping.BakeAsync()) { 
+                Lightmapping.lightingSettings = lightingSettings;
+                if (resoLinkConnected && Lightmapping.BakeAsync()) { 
                     Debug.Log("Bake Lighting triggered!");
                     Lightmapping.bakeCompleted += OnBakeComplete;
                 }
@@ -367,11 +370,17 @@ public class LightBaking : EditorWindow {
 
             EditorGUI.indentLevel--;
         }
+        EditorGUI.EndDisabledGroup();
     }
 
-    static void OnBakeComplete() {
-        Debug.Log("Lightmapping bake completed!");
+    private async void OnBakeComplete() {
         Lightmapping.bakeCompleted -= OnBakeComplete;
+
+        foreach (LightmapData lm in LightmapSettings.lightmaps) {
+            if (lm.lightmapColor != null) {
+                await resoLinkHelper.SendTextureToResoLink(lm.lightmapColor);
+            }
+        }
     }
 
     private void UpdateLightingSettings() {
