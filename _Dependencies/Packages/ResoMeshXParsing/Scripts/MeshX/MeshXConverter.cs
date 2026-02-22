@@ -84,7 +84,7 @@ namespace ResoMeshXParsing {
             }
         }
 
-        public static void ApplyMeshToGameObject(Mesh mesh, GameObject targetObject, bool enableRenderer) {
+        public static MeshRenderer ApplyMeshToGameObject(Mesh mesh, GameObject targetObject, bool enableRenderer) {
             MeshFilter meshFilter = targetObject.GetComponent<MeshFilter>();
             if (meshFilter == null) { 
                 meshFilter = targetObject.AddComponent<MeshFilter>();
@@ -95,14 +95,6 @@ namespace ResoMeshXParsing {
             if (meshRenderer == null) {
                 meshRenderer = targetObject.AddComponent<MeshRenderer>();
                 meshRenderer.enabled = enableRenderer;
-
-                GameObjectUtility.SetStaticEditorFlags(
-                    targetObject,
-                    GameObjectUtility.GetStaticEditorFlags(targetObject) 
-                    | StaticEditorFlags.ContributeGI
-                );
-                
-                meshRenderer.receiveGI = ReceiveGI.Lightmaps;
             }
 
             int subMeshCount = mesh != null ? mesh.subMeshCount : 1;
@@ -117,6 +109,8 @@ namespace ResoMeshXParsing {
                 sharedMaterials[i] = new Material(shader);
             }
             meshRenderer.sharedMaterials = sharedMaterials;
+
+            return meshRenderer;
         }
     }
 }

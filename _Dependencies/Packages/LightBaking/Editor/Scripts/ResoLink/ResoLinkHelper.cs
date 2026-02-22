@@ -363,7 +363,16 @@ namespace LightBakingResoLink {
                         Mesh mesh = await AcquireMesh(meshUri);
                         if (mesh == null) return;
 
-                        MeshXConverter.ApplyMeshToGameObject(mesh, targetObject, (enabled as Field_bool).Value);
+                        MeshRenderer renderer = MeshXConverter.ApplyMeshToGameObject(mesh, targetObject, (enabled as Field_bool).Value);
+                        
+                        GameObjectUtility.SetStaticEditorFlags(
+                            targetObject,
+                            GameObjectUtility.GetStaticEditorFlags(targetObject) 
+                            | StaticEditorFlags.ContributeGI
+                        );
+                
+                        renderer.receiveGI = ReceiveGI.Lightmaps;
+                        
                         lastSuccessfulObject = targetObject;
                     } catch (Exception e) {
                         Debug.LogError($"Error downloading/applying mesh for slot {item.Item1}: {e.Message}\n{e.StackTrace}");
