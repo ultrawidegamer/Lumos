@@ -92,6 +92,104 @@ namespace LightBakingResoLink {
             return component;
         }
 
+        private async Task<string> AddSlotToResolink(string name, string parentId) {
+            if (!IsConnected()) return null;
+            try {
+                NewEntityId newId = await linkInterface.AddSlot(new AddSlot() {
+                    Data = new Slot {
+                        Parent = new Reference { TargetID = parentId },
+                        Name = new Field_string { Value = name },
+                        Position = new Field_float3 { Value = new float3 { x = 0f, y = 0f, z = 0f } },
+                        Rotation = new Field_floatQ { Value = new floatQ { x = 0f, y = 0f, z = 0f, w = 0f } },
+                        Scale = new Field_float3 { Value = new float3 { x = 1f, y = 1f, z = 1f } }
+                    }
+                });
+                
+                return newId.EntityId;
+            } catch (Exception e) {
+                Debug.LogError($"Failed to add slot to ResoLink: {e.Message}");
+                return null;
+            }
+        }
+
+        private async Task<string> AddComponentToResolinkSlot(string slotId, ResoniteLink.Component component) {
+            if (!IsConnected()) return null;
+            try {
+                NewEntityId newId = await linkInterface.AddComponent(new AddComponent() {
+                    ContainerSlotId = slotId,
+                    Data = component
+                });
+
+                return newId.EntityId;
+            } catch (Exception e) {
+                Debug.LogError($"Failed to add slot to ResoLink: {e.Message}");
+                return null;
+            }
+        }
+
+        private async Task<string> AddMeshToResolinkSlot(string slotId, string meshUri) {
+            if (!IsConnected()) return null;
+            try {
+                return await AddComponentToResolinkSlot(slotId, new ResoniteLink.Component {
+                    ComponentType = "[FrooxEngine]FrooxEngine.StaticMesh",
+                    Members = new Dictionary<string, Member> {
+                        { "URL", new Field_Uri { Value = new Uri(meshUri) } }
+                    }
+                });
+            } catch (Exception e) {
+                Debug.LogError($"Failed to add mesh to slot: {e.Message}");
+                return null;
+            }
+        }
+
+        private async Task<string> AddTextureToResolinkSlot(string slotId, string textureUri) {
+            if (!IsConnected()) return null;
+            try {
+                return await AddComponentToResolinkSlot(slotId, new ResoniteLink.Component {
+                    ComponentType = "[FrooxEngine]FrooxEngine.StaticTexture2D",
+                    Members = new Dictionary<string, Member> {
+                        { "URL", new Field_Uri { Value = new Uri(textureUri) } }
+                    }
+                });
+            } catch (Exception e) {
+                Debug.LogError($"Failed to add texture to slot: {e.Message}");
+                return null;
+            }
+        }
+
+        private async Task<string> AddMaterialToResolinkSlot(string slotId, string textureId) {
+            if (!IsConnected()) return null;
+            try {
+                return await AddComponentToResolinkSlot(slotId, new ResoniteLink.Component {
+                    ComponentType = "[FrooxEngine]FrooxEngine.UnlitMaterial",
+                    Members = new Dictionary<string, Member> {
+                        { "Texture", new Reference { TargetID = textureId } },
+                        { "BlendMode",  new Field_Enum { Value = "Multiply" } },
+                        { "OffsetFactor", new Field_float { Value = -1f } }
+                    }
+                });
+            } catch (Exception e) {
+                Debug.LogError($"Failed to add material to slot: {e.Message}");
+                return null;
+            }
+        }
+
+        private async Task<string> AddMeshRendererToResolinkSlot(string slotId, string meshId, string materialId) {
+            if (!IsConnected()) return null;
+            try {
+                return await AddComponentToResolinkSlot(slotId, new ResoniteLink.Component {
+                    ComponentType = "[FrooxEngine]FrooxEngine.MeshRenderer",
+                    Members = new Dictionary<string, Member> {
+                        { "Mesh", new Reference { TargetID = meshId } },
+                        { "Materials",  new SyncList { Elements = new List<Member> { new Reference { TargetID = materialId } } } }
+                    }
+                });
+            } catch (Exception e) {
+                Debug.LogError($"Failed to add material to slot: {e.Message}");
+                return null;
+            }
+        }
+
         private static readonly HashSet<string> BlacklistedComponents = new HashSet<string> {
             "[FrooxEngine]FrooxEngine.UserRoot",
             "[FrooxEngine]FrooxEngine.Undo.UndoManager",
@@ -365,14 +463,20 @@ namespace LightBakingResoLink {
 
                         MeshRenderer renderer = MeshXConverter.ApplyMeshToGameObject(mesh, targetObject, (enabled as Field_bool).Value);
                         
-                        GameObjectUtility.SetStaticEditorFlags(
-                            targetObject,
-                            GameObjectUtility.GetStaticEditorFlags(targetObject) 
-                            | StaticEditorFlags.ContributeGI
-                        );
-                
-                        renderer.receiveGI = ReceiveGI.Lightmaps;
-                        
+                        TaskQueue.Enqueue(() => {
+                            GameObjectUtility.SetStaticEditorFlags(
+                                targetObject,
+                                GameObjectUtility.GetStaticEditorFlags(targetObject) | StaticEditorFlags.ContributeGI
+                            );
+                            renderer.receiveGI = ReceiveGI.Lightmaps;
+
+                            if (IsMeshValidForUnwrapping(mesh)) {
+                                Unwrapping.GenerateSecondaryUVSet(mesh);
+                            } else {
+                                Debug.LogWarning($"Mesh on slot '{targetObject.name}' is not valid for unwrapping. Skipping UV2 generation.\n{meshUri}");
+                            }
+                        });
+
                         lastSuccessfulObject = targetObject;
                     } catch (Exception e) {
                         Debug.LogError($"Error downloading/applying mesh for slot {item.Item1}: {e.Message}\n{e.StackTrace}");
@@ -381,6 +485,11 @@ namespace LightBakingResoLink {
 
                 progressCallback?.Invoke($"Downloading meshes... ", i / (float)slotList.Count, lastSuccessfulObject);
             }
+        }
+
+        private string GetResoLinkSlotIdFromName(string name) {
+            string[] slotNameArray = name.Split("(");
+            return slotNameArray[slotNameArray.Length-1].Replace(")", "");
         }
 
         private async Task<Mesh> AcquireMesh(string meshId) { 
@@ -400,9 +509,6 @@ namespace LightBakingResoLink {
                 if (meshXData == null) return null;
                 
                 Mesh mesh = MeshXConverter.ConvertToUnityMesh(meshXData);
-                if (mesh == null) return null;
-                
-                Unwrapping.GenerateSecondaryUVSet(mesh);
 
                 MeshXCache.Instance.AddToMeshDataCache(meshId, mesh);
                 return mesh;
@@ -412,8 +518,52 @@ namespace LightBakingResoLink {
             }
         }
 
-        public async Task<bool> SendUnityMeshToResoLink(Mesh mesh) {
-            if (!IsConnected() || mesh == null) return false;
+        private bool IsMeshValidForUnwrapping(Mesh mesh) {
+            if (mesh == null) {
+                Debug.LogWarning("Mesh is null.");
+                return false;
+            }
+
+            if (!mesh.isReadable) {
+                Debug.LogWarning($"'{mesh.name}' is not readable.");
+                return false;
+            }
+
+            if (mesh.vertexCount < 3) {
+                Debug.LogWarning($"'{mesh.name}' has fewer than 3 vertices.");
+                return false;
+            }
+
+            if (mesh.triangles == null || mesh.triangles.Length < 3) {
+                Debug.LogWarning($"'{mesh.name}' has no triangles.");
+                return false;
+            }
+
+            int[] triangles = mesh.triangles;
+            Vector3[] vertices = mesh.vertices;
+            for (int i = 0; i < triangles.Length; i += 3) {
+                int i0 = triangles[i];
+                int i1 = triangles[i + 1];
+                int i2 = triangles[i + 2];
+
+                Vector3 v0 = vertices[i0];
+                Vector3 v1 = vertices[i1];
+                Vector3 v2 = vertices[i2];
+
+                if ((Vector3.Cross(v1 - v0, v2 - v0).magnitude * 0.5f) < 1e-7f) {
+                    Debug.LogWarning($"'{mesh.name}' has zero area triangle at indices {i0}, {i1}, {i2}.");
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        public async Task<string> SendUnityMeshToResoLink(Mesh mesh) {
+            if (!IsConnected() || mesh == null) {
+                Debug.LogWarning("Not connected or mesh is null.");
+                return null;
+            }
 
             try {
                 ImportMeshRawData importData = new ImportMeshRawData {
@@ -457,7 +607,7 @@ namespace LightBakingResoLink {
 
                 if (importData.Submeshes.Count == 0) {
                     Debug.LogError("Mesh must have at least one supported submesh (triangles or points).");
-                    return false;
+                    return null;
                 }
 
                 importData.AllocateBuffer();
@@ -472,17 +622,15 @@ namespace LightBakingResoLink {
                     }
                 }
 
-                if (linkInterface == null) return false;
-                if (importData == null) return false;
+                if (linkInterface == null) return null;
+                if (importData == null) return null;
 
                 AssetData data = await linkInterface.ImportMesh(importData);
 
-                Debug.Log($"Mesh import result: {data?.AssetURL}");
-
-                return !string.IsNullOrEmpty(data?.AssetURL?.ToString());
+                return data?.AssetURL?.ToString();
             } catch (Exception e) {
-                Debug.LogError($"Exception in SendUnityMeshToResoLink: {e.Message}\n{e.StackTrace}");
-                return false;
+                Debug.LogError($"Exception: {e.Message}\n{e.StackTrace}");
+                return null;
             }
         }
 
@@ -556,8 +704,8 @@ namespace LightBakingResoLink {
             
         }
 
-        private async Task<bool> SendHDRTextureToResoLink(Texture2D texture) {
-            if (!IsConnected()) return false;
+        private async Task<string> SendHDRTextureToResoLink(Texture2D texture) {
+            if (!IsConnected()) return null;
 
             ImportTexture2DRawDataHDR import = new ImportTexture2DRawDataHDR {
                 Width = texture.width,
@@ -567,13 +715,11 @@ namespace LightBakingResoLink {
             FillImportHDRTexture2DRawData(import, texture);
             AssetData assetData = await linkInterface.ImportTexture(import);
 
-            Debug.Log($"HDR Texture import result: {assetData?.AssetURL}");
-
-            return !string.IsNullOrEmpty(assetData?.AssetURL?.ToString());
+            return assetData?.AssetURL?.ToString();
         }
 
-        private async Task<bool> SendSDRTextureToResoLink(Texture2D texture) {
-            if (!IsConnected()) return false;
+        private async Task<string> SendSDRTextureToResoLink(Texture2D texture) {
+            if (!IsConnected()) return null;
 
             ImportTexture2DRawData import = new ImportTexture2DRawData {
                 Width = texture.width,
@@ -583,9 +729,7 @@ namespace LightBakingResoLink {
             FillImportSDRTexture2DRawData(import, texture);
             AssetData assetData = await linkInterface.ImportTexture(import);
 
-            Debug.Log($"SDR Texture import result: {assetData?.AssetURL}");
-
-            return !string.IsNullOrEmpty(assetData?.AssetURL?.ToString());
+            return assetData?.AssetURL?.ToString();
         }
 
         private void FillImportHDRTexture2DRawData(ImportTexture2DRawDataHDR import, Texture2D texture) {
@@ -630,9 +774,9 @@ namespace LightBakingResoLink {
             }
         }
 
-        public async Task<bool> SendTextureToResoLink(Texture2D texture) {
-            if (!IsConnected()) return false;
-            if (texture == null) return false;
+        public async Task<string> SendTextureToResoLink(Texture2D texture) {
+            if (!IsConnected()) return null;
+            if (texture == null) return null;
             SetTextureReadable(texture);
 
             if (GraphicsFormatUtility.IsHDRFormat(texture.graphicsFormat)) {
@@ -642,18 +786,130 @@ namespace LightBakingResoLink {
             }
         }
 
-        public async Task<bool> SendTextureToResoLinkViaObject(GameObject textureObject) {
-            if (!IsConnected()) return false;
-            if (textureObject == null) return false;
+        public async Task<String> SendTextureToResoLinkViaObject(GameObject textureObject) {
+            if (!IsConnected()) return null;
+            if (textureObject == null) return null;
             Renderer renderer = textureObject.GetComponent<Renderer>();
 
-            if (renderer == null) return false;
-            if (renderer.sharedMaterials.Length == 0) return false;
+            if (renderer == null) return null;
+            if (renderer.sharedMaterials.Length == 0) return null;
             
             Material material = renderer.sharedMaterials[0];
             Texture2D albedoTexture = material.mainTexture as Texture2D;
 
             return await SendTextureToResoLink(albedoTexture);
+        }
+
+        private Mesh SetUV1ToUV0(Mesh mesh) {
+            if (!IsConnected()) return null;
+            if (mesh == null) return null;
+
+            Mesh duplicatedMesh = UnityEngine.Object.Instantiate(mesh);
+            duplicatedMesh.name = mesh.name + "_UV1ToUV0";
+
+            duplicatedMesh.uv = mesh.uv2;
+            duplicatedMesh.uv2 = null;
+
+            return duplicatedMesh;
+        }
+
+        private Mesh ApplyLightmapOffsetsToMesh(MeshRenderer renderer) {
+            MeshFilter filter = renderer.GetComponent<MeshFilter>();
+            Mesh mesh = filter?.sharedMesh;
+            if (mesh == null) return null;
+
+            if (renderer.lightmapScaleOffset == new Vector4(1f, 1f, 0f, 0f)) return mesh;
+
+            Vector4 offset = renderer.lightmapScaleOffset;
+            Vector2[] uv2 = mesh.uv2;
+            if (uv2 == null || uv2.Length != mesh.vertexCount) return null;
+
+            Mesh meshCopy = UnityEngine.Object.Instantiate(mesh);
+            meshCopy.name = mesh.name + "_OffsetFixed";
+
+            Vector2[] uv2Offset = new Vector2[uv2.Length];
+            for (int j = 0; j < uv2.Length; j++) {
+                uv2Offset[j] = new Vector2(
+                    uv2[j].x * offset.x + offset.z,
+                    uv2[j].y * offset.y + offset.w
+                );
+            }
+
+            meshCopy.uv2 = uv2Offset;
+            filter.sharedMesh = meshCopy;
+            renderer.lightmapScaleOffset = new Vector4(1f, 1f, 0f, 0f);
+
+            return meshCopy;
+        }
+
+        public async Task PrepareAndSendToResolink(Action<string, float> progressCallback) {
+            try {
+                if (progressCallback == null) return;
+
+                MeshRenderer[] meshRenderers = UnityEngine.Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None);
+                int total = meshRenderers.Length;
+
+                (string, string, string, string) assetIds = await CreateLightmapAssetsSlot();
+
+                for (int i = 0; i < total; i++) {
+                    Mesh mesh = ApplyLightmapOffsetsToMesh(meshRenderers[i]);
+                    if (mesh == null) continue;
+
+                    Mesh duplicatedMesh = SetUV1ToUV0(mesh);
+                    if (duplicatedMesh == null) continue;
+
+                    int lightmapIndex = meshRenderers[i].lightmapIndex;
+                    if (lightmapIndex < 0 || lightmapIndex >= LightmapSettings.lightmaps.Length) continue;
+
+                    LightmapData lightmapData = LightmapSettings.lightmaps[lightmapIndex];
+                    if (lightmapData == null || lightmapData.lightmapColor == null) continue;
+
+                    Texture2D lightmap = lightmapData.lightmapColor;
+                    
+                    string slotTargetId = GetResoLinkSlotIdFromName(meshRenderers[i].gameObject.name);
+                    await SendMeshRendererToResoLink(assetIds, slotTargetId, duplicatedMesh, lightmap);
+
+                    progressCallback?.Invoke($"Applying lightmap offsets... ({i}/{total})", i / (float)total);
+                }
+
+                progressCallback?.Invoke("Lightmap offsets applied.", 1f);
+            } catch (Exception e) {
+                Debug.LogError($"Error applying lightmap offsets: {e.Message}\n{e.StackTrace}");
+            }
+            await Task.CompletedTask;
+        }
+
+        private async Task<(string, string, string, string)> CreateLightmapAssetsSlot() {
+            string lightmapAssetId = await AddSlotToResolink("LightmapAssets", "Root");
+
+            if (lightmapAssetId == null) return (null, null, null, null);
+
+            string meshSlotId = await AddSlotToResolink("Meshes", lightmapAssetId);
+            string textureSlotId = await AddSlotToResolink("Textures", lightmapAssetId);
+            string materialSlotId = await AddSlotToResolink("Materials", lightmapAssetId);
+            
+            return (lightmapAssetId, meshSlotId, textureSlotId, materialSlotId);
+        }
+
+        private async Task<(string, string)> AddLightmapAssetsToSlots((string, string, string, string) assetIds, string meshUri, string lightmapUri) {
+            string lightmapAssetId = assetIds.Item1;
+            string meshSlotId = assetIds.Item2;
+            string textureSlotId = assetIds.Item3;
+            string materialSlotId = assetIds.Item4;
+
+            string meshId = await AddMeshToResolinkSlot(meshSlotId, meshUri);
+            string textureId = await AddTextureToResolinkSlot(textureSlotId, lightmapUri);
+            string materialId = await AddMaterialToResolinkSlot(materialSlotId, textureId);
+
+            return (meshId, materialId);
+        }
+
+        private async Task SendMeshRendererToResoLink((string, string, string, string) assetIds, string targetId, Mesh mesh, Texture2D lightmap) {
+            string meshUri = await SendUnityMeshToResoLink(mesh);
+            string lightmapUri = await SendTextureToResoLink(lightmap);
+
+            (string, string) assets = await AddLightmapAssetsToSlots(assetIds, meshUri, lightmapUri);
+            await AddMeshRendererToResolinkSlot(targetId, assets.Item1, assets.Item2);
         }
     }
 }

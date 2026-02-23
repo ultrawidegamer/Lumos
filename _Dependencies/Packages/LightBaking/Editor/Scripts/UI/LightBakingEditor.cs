@@ -10,7 +10,6 @@ public class LightBaking : EditorWindow {
     private bool showCacheSettings = false;
     private bool showActionSettings = false;
     private bool showLightingSettings = false;
-    private bool showTempSettings = false;
     private bool resoLinkConnected = false;
     private bool cacheDirConnected = false;
     private bool dataDirConnected = false;
@@ -23,8 +22,6 @@ public class LightBaking : EditorWindow {
     private Texture2D lightingIcon;
     private ResoLinkHelper resoLinkHelper;
     private MeshXCache meshXCache;
-    private GameObject selectedMeshObject;
-    private GameObject selectedTextureObject;
     private LightingSettings lightingSettings;
     private Vector2 scrollPos;
     private string wsUrl = "ws://localhost:5000";
@@ -45,7 +42,7 @@ public class LightBaking : EditorWindow {
     private int denoiserIndex = 0;
     private int lightmapSizeIndex = 5;
     private int lightmapResolution = 40;
-    private bool enableAdvancedSettings = true;
+    private bool enableAdvancedSettings = false;
     private int lightmapperIndex = 1;
     private bool importanceSampling = true;
     private int directFilterIndex = 1;
@@ -114,7 +111,6 @@ public class LightBaking : EditorWindow {
         CreateConnectionSettingsGUI();
         CreateCacheSettingsGUI();
         CreateActionsGUI();
-        CreateTempGUI();
         CreateLightingGUI();
         EditorGUILayout.EndScrollView();
     }
@@ -183,61 +179,13 @@ public class LightBaking : EditorWindow {
             if (GUILayout.Button("Retrieve Resonite Data")) {
                 RetrieveMesh();
             }
+            if (GUILayout.Button("Send Scene to ResoLink")) {
+                SendLightmap();
+            }
             EditorGUI.indentLevel--;
         }
+
         EditorGUI.EndDisabledGroup();
-    }
-
-    private void CreateTempGUI() {
-        EditorGUILayout.BeginHorizontal();
-        GUIContent content = new GUIContent("Temp Settings", lightingIcon);
-        showTempSettings = EditorGUILayout.Foldout(showTempSettings, content, true);
-        EditorGUILayout.EndHorizontal();
-
-        if (showTempSettings) {
-            EditorGUI.indentLevel++;
-
-            GameObject newSelectedMeshObject = (GameObject)EditorGUILayout.ObjectField("Mesh Object", selectedMeshObject, typeof(GameObject), true);
-            if (newSelectedMeshObject != selectedMeshObject) {
-                selectedMeshObject = newSelectedMeshObject;
-            }
-
-            if (GUILayout.Button("Send Selected Mesh to ResoLink")) {
-                GameObject meshObj = selectedMeshObject;
-                ResoLinkHelper helper = resoLinkHelper;
-                EditorApplication.delayCall += async () => {
-                    if (meshObj != null && helper != null) {
-                        MeshFilter meshFilter = meshObj.GetComponent<MeshFilter>();
-                        if (await helper.SendUnityMeshToResoLink(meshFilter?.sharedMesh)) {
-                            Debug.Log("Mesh sent successfully!");
-                        } else {
-                            Debug.LogError("Failed to send mesh.");
-                        }
-                    }
-                };
-            }
-
-            GameObject newSelectedTextureObject = (GameObject)EditorGUILayout.ObjectField("Texture Object", selectedTextureObject, typeof(GameObject), true);
-            if (newSelectedTextureObject != selectedTextureObject) {
-                selectedTextureObject = newSelectedTextureObject;
-            }
-
-            if (GUILayout.Button("Send Selected Texture to ResoLink")) {
-                GameObject texObj = selectedTextureObject;
-                ResoLinkHelper helper = resoLinkHelper;
-                EditorApplication.delayCall += async () => {
-                    if (texObj != null && helper != null) {
-                        if (await helper.SendTextureToResoLinkViaObject(texObj)) {
-                            Debug.Log("Texture sent successfully!");
-                        } else {
-                            Debug.LogError("Failed to send texture.");
-                        }
-                    }
-                };
-            }
-
-            EditorGUI.indentLevel--;
-        }
     }
 
     private void CreateCustomPO2Slider(string label, int min, int max, ref int output) {
@@ -491,6 +439,21 @@ public class LightBaking : EditorWindow {
         } finally {
             EditorUtility.ClearProgressBar();
             Debug.Log("Retrieval from ResoLink finished");
+        }
+    }
+
+    private async void SendLightmap() {
+        try {
+            Debug.Log("Starting Send of Scene to ResoLink");
+            await Task.Delay(1);
+            await ProgressBar(async (progressCallback) => {
+                await resoLinkHelper.PrepareAndSendToResolink(progressCallback);
+            });
+        } catch (Exception e) {
+            Debug.LogError($"Error during sending scene: {e.Message}\n{e.StackTrace}");
+        } finally {
+            EditorUtility.ClearProgressBar();
+            Debug.Log("Sending Scene to ResoLink finished");
         }
     }
 
