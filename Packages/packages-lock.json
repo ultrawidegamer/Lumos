@@ -6,8 +6,8 @@
       "source": "local",
       "dependencies": {}
     },
-    "com.ultrawidegamer.lightbaking": {
-      "version": "file:../_Dependencies/Packages/LightBaking",
+    "com.ultrawidegamer.lumos": {
+      "version": "file:../_Dependencies/Packages/Lumos",
       "depth": 0,
       "source": "local",
       "dependencies": {}

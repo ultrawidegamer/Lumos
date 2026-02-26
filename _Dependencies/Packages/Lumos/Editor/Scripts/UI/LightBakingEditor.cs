@@ -5,7 +5,7 @@ using ResoMeshXParsing;
 using UnityEditor;
 using UnityEngine;
 
-public class LightBaking : EditorWindow {
+public class Lumos : EditorWindow {
     private bool showConnectionSettings = false;
     private bool showCacheSettings = false;
     private bool showActionSettings = false;
@@ -69,7 +69,7 @@ public class LightBaking : EditorWindow {
 
     [MenuItem("Tools/Lumos")]
     public static void ShowWindow() {
-        GetWindow<LightBaking>("Lumos");
+        GetWindow<Lumos>("Lumos");
     }
 
     private void OnEnable() {
