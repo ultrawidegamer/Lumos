@@ -19,11 +19,14 @@ namespace LightBakingResoLink {
         private const int MAX_CONCURRENT_RESOLINK_REQUESTS = 10;
         private const int MAX_CONCURRENT_MESH_DOWNLOADS = 10;
         public HierarchyData hierarchyData = null;
-        private SynchronizationContext unityContext = SynchronizationContext.Current;
         private ConcurrentDictionary<string, SlotData> slotDataLookup = new ConcurrentDictionary<string, SlotData>();
         private ConcurrentDictionary<string, GameObject> createdObjects = new ConcurrentDictionary<string, GameObject>();
         private ConcurrentDictionary<string, ComponentData> cachedMeshComponentData = new ConcurrentDictionary<string, ComponentData>();
         private CancellationTokenSource cancellation = new CancellationTokenSource();
+        private (List<Member>, List<Member>) lumosConfig = (null, null);
+        private SlotData lumosConfigSlot = null;
+        private List<Member> textureElementsToSend = null;
+        private List<Member> colorElementsToSend = null;
 
         public static ResoLinkHelper Instance {
             get {
@@ -105,7 +108,7 @@ namespace LightBakingResoLink {
                     }
                 });
                 
-                return newId.EntityId;
+                return newId?.EntityId;
             } catch (Exception e) {
                 Debug.LogError($"Failed to add slot to ResoLink: {e.Message}");
                 return null;
@@ -148,7 +151,18 @@ namespace LightBakingResoLink {
                 return await AddComponentToResolinkSlot(slotId, new ResoniteLink.Component {
                     ComponentType = "[FrooxEngine]FrooxEngine.StaticTexture2D",
                     Members = new Dictionary<string, Member> {
-                        { "URL", new Field_Uri { Value = new Uri(textureUri) } }
+                        { "URL", new Field_Uri { Value = new Uri(textureUri) } },
+                        { "FilterMode", new Field_Nullable_Enum { Value = "Bilinear" } },
+                        { "AnisotropicLevel", new Field_Nullable_int { Value = 0 } },
+                        { "Uncompressed", new Field_bool { Value = false } },
+                        { "ForceExactVariant", new Field_bool  { Value = true } },
+                        { "PreferredFormat", new Field_Nullable_Enum { Value = "BC6H_LZMA" } },
+                        { "PreferredProfile", new Field_Nullable_Enum { Value = "Linear" } },
+                        { "WrapModeU", new Field_Enum { Value = "Clamp" } },
+                        { "WrapModeV", new Field_Enum { Value = "Clamp" } },
+                        { "CrunchCompressed", new Field_bool { Value = false } },
+                        { "MinSize", new Field_Nullable_int { Value = 8192 } },
+                        { "MipMaps", new Field_bool { Value = false } }
                     }
                 });
             } catch (Exception e) {
@@ -165,7 +179,9 @@ namespace LightBakingResoLink {
                     Members = new Dictionary<string, Member> {
                         { "Texture", new Reference { TargetID = textureId } },
                         { "BlendMode",  new Field_Enum { Value = "Multiply" } },
-                        { "OffsetFactor", new Field_float { Value = -1f } }
+                        { "OffsetUnits", new Field_float { Value = -1f } },
+                        { "Sidedness", new Field_Enum { Value = "Front" } },
+                        { "RenderQueue", new Field_int { Value = 2000 } }
                     }
                 });
             } catch (Exception e) {
@@ -181,7 +197,9 @@ namespace LightBakingResoLink {
                     ComponentType = "[FrooxEngine]FrooxEngine.MeshRenderer",
                     Members = new Dictionary<string, Member> {
                         { "Mesh", new Reference { TargetID = meshId } },
-                        { "Materials",  new SyncList { Elements = new List<Member> { new Reference { TargetID = materialId } } } }
+                        { "Materials",  new SyncList { Elements = new List<Member> { new Reference { TargetID = materialId } } } },
+                        { "ShadowCastMode", new Field_Enum { Value = "Off" } },
+                        { "MotionVectorMode", new Field_Enum { Value = "NoMotion" } },
                     }
                 });
             } catch (Exception e) {
@@ -190,7 +208,48 @@ namespace LightBakingResoLink {
             }
         }
 
-        private static readonly HashSet<string> BlacklistedComponents = new HashSet<string> {
+        private async Task<string> AddMultiDriverToResolinkSlot(string slotId, string subType, Dictionary<string, Member> members) {
+            if (!IsConnected()) return null;
+            try {
+                return await AddComponentToResolinkSlot(slotId, new ResoniteLink.Component {
+                    ComponentType = $"[FrooxEngine]FrooxEngine.ValueMultiDriver<{subType}>",
+                    Members = members
+                });
+            } catch (Exception e) {
+                Debug.LogError($"Failed to add destroy proxy to slot: {e.Message}");
+                return null;
+            }
+        }
+
+        private async Task<string> AddBooleanValueDriverToResolinkSlot(string slotId, string subType, Dictionary<string, Member> members) {
+            if (!IsConnected()) return null;
+            try {
+                return await AddComponentToResolinkSlot(slotId, new ResoniteLink.Component {
+                    ComponentType = $"[FrooxEngine]FrooxEngine.BooleanValueDriver<{subType}>",
+                    Members = members
+                });
+            } catch (Exception e) {
+                Debug.LogError($"Failed to add destroy proxy to slot: {e.Message}");
+                return null;
+            }
+        }
+
+        private async Task<string> AddDestroyProxyToResolinkSlot(string slotId, string targetId) {
+            if (!IsConnected()) return null;
+            try {
+                return await AddComponentToResolinkSlot(slotId, new ResoniteLink.Component {
+                    ComponentType = "[FrooxEngine]FrooxEngine.DestroyProxy",
+                    Members = new Dictionary<string, Member> {
+                        { "DestroyTarget", new Reference { TargetID = targetId } }
+                    }
+                });
+            } catch (Exception e) {
+                Debug.LogError($"Failed to add destroy proxy to slot: {e.Message}");
+                return null;
+            }
+        }
+
+        private static readonly HashSet<string> BlacklistedComponentsSlot = new HashSet<string> {
             "[FrooxEngine]FrooxEngine.UserRoot",
             "[FrooxEngine]FrooxEngine.Undo.UndoManager",
             "[FrooxEngine]FrooxEngine.SceneInspector",
@@ -198,11 +257,20 @@ namespace LightBakingResoLink {
             "[FrooxEngine]FrooxEngine.TeleportLocomotion",
             "[FrooxEngine]FrooxEngine.UIX.Canvas",
             "[FrooxEngine]FrooxEngine.HyperlinkDisplayInterface",
+            "[FrooxEngine]FrooxEngine.VideoPlayerInterface",
             "[FrooxEngine]FrooxEngine.Protoflux.ProtoFluxNodeVisual"
+        };
+
+        private static readonly HashSet<string> BlacklistedComponentsChildren = new HashSet<string> {
+            "[FrooxEngine]FrooxEngine.Light"
         };
 
         private ResoniteLink.Component GetMeshRenderer(SlotData slotData) {
             return slotData.Data.Components.FirstOrDefault(c => c.ComponentType == "[FrooxEngine]FrooxEngine.MeshRenderer");
+        }
+
+        private ResoniteLink.Component GetLightComponent(SlotData slotData) {
+            return slotData.Data.Components.FirstOrDefault(c => c.ComponentType == "[FrooxEngine]FrooxEngine.Light");
         }
 
         private Task FetchChildSlotTask(
@@ -214,7 +282,8 @@ namespace LightBakingResoLink {
             return Task.Run(async () => {
                 await throttler.WaitAsync();
                 try {
-                    if (!IsConnected()) return;
+                    if (!IsConnected()) return;                    
+                    if (lumosConfig.Item1?.Any(s => (s as Reference)?.TargetID == slot.ID) ?? false) return;
 
                     SlotData slotData = await FetchSlot(slot.ID, true);
 
@@ -223,8 +292,9 @@ namespace LightBakingResoLink {
 
                     List<ResoniteLink.Component> components = slotData.Data.Components;
 
-                    bool hasBlacklistedComponent = components?.Any(c => BlacklistedComponents.Contains(c.ComponentType)) ?? false;
-
+                    bool hasBlacklistedComponent = components?.Any(c => BlacklistedComponentsSlot.Contains(c.ComponentType)) ?? false;
+                    bool hasBlacklistedComponentsChildren = components?.Any(c => BlacklistedComponentsChildren.Contains(c.ComponentType)) ?? false;
+                    
                     if (hasBlacklistedComponent) return;
 
                     string slotName = slotData.Data?.Name?.Value ?? "Unknown";
@@ -233,6 +303,7 @@ namespace LightBakingResoLink {
                     List<string> currentPath = new List<string>(parentPath) { pathSegment };
 
                     ResoniteLink.Component meshRenderer = GetMeshRenderer(slotData);
+                    ResoniteLink.Component light = GetLightComponent(slotData);
 
                     Member meshMember = null;
                     meshRenderer?.Members?.TryGetValue("Mesh", out meshMember);
@@ -241,16 +312,31 @@ namespace LightBakingResoLink {
                     allSlots[slotData.Data.ID] = new SlotInfo {
                         Data = slotData,
                         Path = currentPath.ToArray(),
-                        MeshId = meshID
+                        MeshId = meshID,
+                        Light = light
                     };
 
-                    if (meshRenderer != null && !string.IsNullOrEmpty(meshID)) {
+                    bool hasLight = light != null && (lumosConfig.Item2?.Any(l => (l as Reference).TargetID == light.ID) ?? false);
+                    bool hasMeshRenderer = meshRenderer != null && !string.IsNullOrEmpty(meshID);
+
+                    if (hasLight) {
+                        allSlots[slotData.Data.ID].Light = light;
+                    }
+
+                    if (hasMeshRenderer || hasLight) {
                         slotsWithMeshRenderer[slotData.Data.ID] = allSlots[slotData.Data.ID];
 
-                        unityContext?.Post(_ => {
+                        TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
+
+                        TaskQueue.Enqueue(() => {
                             CreateUnityHierarchyPart(allSlots[slotData.Data.ID]);
-                        }, null);
+                            tcs.SetResult(true);
+                        });
+
+                        await tcs.Task;
                     }
+
+                    if (hasBlacklistedComponentsChildren) return;
 
                     await FetchAllSlots(slotData, allSlots, slotsWithMeshRenderer, currentPath);
                 } finally {
@@ -283,7 +369,39 @@ namespace LightBakingResoLink {
             return Task.WhenAll(tasks);
         }
 
-        public async Task FetchMeshSlots(Action<string, float> progressCallback = null) {
+        private async Task FetchConfig(SlotData root) {
+            if (!IsConnected()) return;
+            try {
+                if (root == null) return;
+
+                Slot config = root.Data.Children.FirstOrDefault(c => c.Name.Value == "LumosConfig");
+                string configId = config?.ID;
+
+                if (config == null || configId == null) {
+                    configId = await AddSlotToResolink("LumosConfig", "Root"); 
+                }
+                
+                lumosConfigSlot = await FetchSlot(configId, true);
+                if (lumosConfigSlot == null || lumosConfigSlot?.Data == null) return;
+
+                Member slotReferences = null;
+                ResoniteLink.Component slotList = lumosConfigSlot?.Data?.Components.FirstOrDefault(c => c.ComponentType == "[FrooxEngine]FrooxEngine.ReferenceList<[FrooxEngine]FrooxEngine.Slot>");
+                slotList?.Members?.TryGetValue("References", out slotReferences);
+
+                Member lightReferences = null;
+                ResoniteLink.Component lightList = lumosConfigSlot?.Data?.Components.FirstOrDefault(c => c.ComponentType == "[FrooxEngine]FrooxEngine.ReferenceList<[FrooxEngine]FrooxEngine.Light>");
+                lightList?.Members?.TryGetValue("References", out lightReferences);
+
+                List<Member> slotElements = (slotReferences as SyncList)?.Elements;
+                List<Member> lightElements = (lightReferences as SyncList)?.Elements;
+
+                lumosConfig = (slotElements, lightElements);
+            } catch (Exception e) {
+                Debug.LogError($"Failed to fetch config from ResoLink: {e.Message}");
+            }
+        }
+
+        public async Task FetchSlots(Action<string, float> progressCallback = null) {
             if (!IsConnected()) return;
 
             try {
@@ -291,7 +409,8 @@ namespace LightBakingResoLink {
 
                 if (rootSlotData == null) return;
                 if (rootSlotData.Data == null) return;
-
+                
+                await FetchConfig(rootSlotData);
 
                 ConcurrentDictionary<string, SlotInfo> allSlots = new ConcurrentDictionary<string, SlotInfo>();
                 ConcurrentDictionary<string, SlotInfo> slotsWithMeshRenderer = new ConcurrentDictionary<string, SlotInfo>();
@@ -351,6 +470,8 @@ namespace LightBakingResoLink {
                         GameObject newObject = new GameObject(pathSegment);
                         if (currentObject != null) {
                             newObject.transform.SetParent(currentObject.transform, false);
+
+                            AddLightToScene(newObject, slotInfo.Light);
                         }
                         return newObject;
                     });
@@ -389,6 +510,7 @@ namespace LightBakingResoLink {
                 progressCallback?.Invoke("Applying TRS...", 0f);
 
                 List<string> sortedPaths = createdObjects.Keys.OrderBy(path => path.Count(part => part == '/')).ToList();
+                 
                 int transformProcessed = 0;
                 int totalTransforms = sortedPaths.Count;
 
@@ -396,6 +518,7 @@ namespace LightBakingResoLink {
                     if (!IsConnected()) return null;
 
                     GameObject obj = createdObjects[path];
+
                     if (slotDataLookup.TryGetValue(path, out SlotData slotData)) {
                         obj.SetActive(slotData.Data.IsActive.Value);
 
@@ -428,6 +551,8 @@ namespace LightBakingResoLink {
         public async Task DownloadAndApplyMeshes(Action<string, float, GameObject> progressCallback = null) {
             List<(string, SlotInfo)> slotList = hierarchyData.SlotsWithMeshRenderer;
 
+            progressCallback?.Invoke($"Downloading meshes... ", 0f, null);
+
             for (int i = 0; i < slotList.Count; i += MAX_CONCURRENT_MESH_DOWNLOADS) {
                 if (!IsConnected()) return;
 
@@ -443,7 +568,9 @@ namespace LightBakingResoLink {
 
                         string pathKey = string.Join("/", slotInfo.Path);
                         GameObject targetObject = null;
+
                         createdObjects.TryGetValue(pathKey, out targetObject);
+                        if (targetObject == null) return;
 
                         ComponentData component = await FetchComponent(slotInfo.MeshId);
                         if (component == null || component.Data == null) return;
@@ -462,7 +589,9 @@ namespace LightBakingResoLink {
                         if (mesh == null) return;
 
                         MeshRenderer renderer = MeshXConverter.ApplyMeshToGameObject(mesh, targetObject, (enabled as Field_bool).Value);
-                        
+
+                        TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
+
                         TaskQueue.Enqueue(() => {
                             GameObjectUtility.SetStaticEditorFlags(
                                 targetObject,
@@ -470,12 +599,12 @@ namespace LightBakingResoLink {
                             );
                             renderer.receiveGI = ReceiveGI.Lightmaps;
 
-                            if (IsMeshValidForUnwrapping(mesh)) {
-                                Unwrapping.GenerateSecondaryUVSet(mesh);
-                            } else {
-                                Debug.LogWarning($"Mesh on slot '{targetObject.name}' is not valid for unwrapping. Skipping UV2 generation.\n{meshUri}");
-                            }
+                            Unwrapping.GenerateSecondaryUVSet(mesh);
+                            
+                            tcs.SetResult(true);
                         });
+
+                        await tcs.Task;
 
                         lastSuccessfulObject = targetObject;
                     } catch (Exception e) {
@@ -485,6 +614,57 @@ namespace LightBakingResoLink {
 
                 progressCallback?.Invoke($"Downloading meshes... ", i / (float)slotList.Count, lastSuccessfulObject);
             }
+        }
+
+        public void AddLightToScene(GameObject slot, ResoniteLink.Component light) {
+            if (!IsConnected()) return;
+            if (slot == null || light == null) return;
+
+            Light lightObj = slot.AddComponent<Light>();
+
+            light.Members.TryGetValue("LightType", out Member lightType);
+            light.Members.TryGetValue("Intensity", out Member intensity);
+            light.Members.TryGetValue("Color", out Member color);
+            light.Members.TryGetValue("ShadowType", out Member shadowType);
+            light.Members.TryGetValue("ShadowStrength", out Member shadowStrength);
+            light.Members.TryGetValue("ShadowNearPlane", out Member shadowNearPlane);
+            light.Members.TryGetValue("ShadowBias", out Member shadowBias);
+            light.Members.TryGetValue("ShadowNormalBias", out Member shadowNormalBias);
+            light.Members.TryGetValue("Range", out Member range);
+            light.Members.TryGetValue("SpotAngle", out Member spotAngle);
+
+            lightObj.type = new Dictionary<string, LightType> {
+                { "Directional", LightType.Directional },
+                { "Point", LightType.Point},
+                { "Spot", LightType.Spot}
+            }[(lightType as Field_Enum).Value];
+
+            lightObj.intensity = (intensity as Field_float)?.Value ?? 1f;
+
+            lightObj.color = new Color(
+                ((color as Field_colorX)?.Value.r ?? 1f),
+                ((color as Field_colorX)?.Value.g ?? 1f),
+                ((color as Field_colorX)?.Value.b ?? 1f),
+                ((color as Field_colorX)?.Value.a ?? 1f)
+            );
+
+            lightObj.shadows = new Dictionary<string, LightShadows> {
+                { "None", LightShadows.None },
+                { "Soft", LightShadows.Soft },
+                { "Hard", LightShadows.Hard }
+            }[(shadowType as Field_Enum).Value];
+
+            lightObj.shadowStrength = (shadowStrength as Field_float)?.Value ?? 1f;
+            lightObj.shadowNearPlane = (shadowNearPlane as Field_float)?.Value ?? 0.2f;
+            lightObj.shadowBias = (shadowBias as Field_float)?.Value ?? 0.05f;
+            lightObj.shadowNormalBias = (shadowNormalBias as Field_float)?.Value ?? 0.4f;
+            lightObj.range = (range as Field_float)?.Value ?? 10f;
+            
+            if (lightObj.type == LightType.Spot) {
+                lightObj.spotAngle = (spotAngle as Field_float)?.Value ?? 30f;
+            }
+
+            lightObj.lightmapBakeType = LightmapBakeType.Baked;
         }
 
         private string GetResoLinkSlotIdFromName(string name) {
@@ -516,47 +696,6 @@ namespace LightBakingResoLink {
                 Debug.LogError($"Error downloading and converting MeshX {meshId}: {e.Message}");
                 return null;
             }
-        }
-
-        private bool IsMeshValidForUnwrapping(Mesh mesh) {
-            if (mesh == null) {
-                Debug.LogWarning("Mesh is null.");
-                return false;
-            }
-
-            if (!mesh.isReadable) {
-                Debug.LogWarning($"'{mesh.name}' is not readable.");
-                return false;
-            }
-
-            if (mesh.vertexCount < 3) {
-                Debug.LogWarning($"'{mesh.name}' has fewer than 3 vertices.");
-                return false;
-            }
-
-            if (mesh.triangles == null || mesh.triangles.Length < 3) {
-                Debug.LogWarning($"'{mesh.name}' has no triangles.");
-                return false;
-            }
-
-            int[] triangles = mesh.triangles;
-            Vector3[] vertices = mesh.vertices;
-            for (int i = 0; i < triangles.Length; i += 3) {
-                int i0 = triangles[i];
-                int i1 = triangles[i + 1];
-                int i2 = triangles[i + 2];
-
-                Vector3 v0 = vertices[i0];
-                Vector3 v1 = vertices[i1];
-                Vector3 v2 = vertices[i2];
-
-                if ((Vector3.Cross(v1 - v0, v2 - v0).magnitude * 0.5f) < 1e-7f) {
-                    Debug.LogWarning($"'{mesh.name}' has zero area triangle at indices {i0}, {i1}, {i2}.");
-                    return false;
-                }
-            }
-
-            return true;
         }
 
         public async Task<string> SendUnityMeshToResoLink(Mesh mesh) {
@@ -814,6 +953,8 @@ namespace LightBakingResoLink {
         }
 
         private Mesh ApplyLightmapOffsetsToMesh(MeshRenderer renderer) {
+            if (!IsConnected()) return null;
+
             MeshFilter filter = renderer.GetComponent<MeshFilter>();
             Mesh mesh = filter?.sharedMesh;
             if (mesh == null) return null;
@@ -842,7 +983,58 @@ namespace LightBakingResoLink {
             return meshCopy;
         }
 
+        private async Task<string> AddValueMultiDriverConfig(string assetsSlot, string type, Dictionary<string, Member> multiDriverMembers, Dictionary<string, Member> valueDriverMembers) {
+            if (!IsConnected()) return null;
+            
+            string multiDriverId = await AddMultiDriverToResolinkSlot(assetsSlot, type, multiDriverMembers);
+
+            ComponentData multiDriverComponent = await FetchComponent(multiDriverId);
+            multiDriverComponent.Data.Members.TryGetValue("Value", out Member multiDriverValue);
+
+            valueDriverMembers.Add("TargetField", new Reference { TargetID = multiDriverValue.ID });         
+
+            string booleanValueDriver = await AddBooleanValueDriverToResolinkSlot(lumosConfigSlot?.Data?.ID, type, valueDriverMembers);
+
+            await AddDestroyProxyToResolinkSlot(assetsSlot, booleanValueDriver);
+            await AddDestroyProxyToResolinkSlot(assetsSlot, multiDriverId);
+
+            return multiDriverId;
+        }
+
+        private async Task<string> AddValueMultiDriverConfigWithProxy(string assetsSlot, string type, Dictionary<string, Member> multiDriverMembers) {
+            if (!IsConnected()) return null;
+            
+            string multiDriverId = await AddMultiDriverToResolinkSlot(assetsSlot, type, multiDriverMembers);
+
+            ComponentData multiDriverComponent = await FetchComponent(multiDriverId);
+            multiDriverComponent.Data.Members.TryGetValue("Value", out Member multiDriverValue);
+
+            string valueFieldId = await AddComponentToResolinkSlot(lumosConfigSlot?.Data?.ID, new ResoniteLink.Component() {
+                ComponentType = $"[FrooxEngine]FrooxEngine.ValueField<{type}>",
+                Members = multiDriverMembers
+            });
+
+            ComponentData valueFieldComponent = await FetchComponent(valueFieldId);
+            valueFieldComponent.Data.Members.TryGetValue("Value", out Member value);
+
+            string valueCopyId = await AddComponentToResolinkSlot(assetsSlot, new ResoniteLink.Component() {
+                ComponentType = $"[FrooxEngine]FrooxEngine.ValueCopy<{type}>",
+                Members = new Dictionary<string, Member>() {
+                    { "Source", new Reference { TargetID = value.ID } },
+                    { "Target", new Reference { TargetID = multiDriverValue.ID } }
+                }
+            });
+
+            await AddDestroyProxyToResolinkSlot(assetsSlot, multiDriverId);
+            await AddDestroyProxyToResolinkSlot(assetsSlot, valueFieldId);
+            await AddDestroyProxyToResolinkSlot(assetsSlot, valueCopyId);
+
+            return multiDriverId;
+        }
+
         public async Task PrepareAndSendToResolink(Action<string, float> progressCallback) {
+            if (!IsConnected()) return;
+
             try {
                 if (progressCallback == null) return;
 
@@ -850,6 +1042,21 @@ namespace LightBakingResoLink {
                 int total = meshRenderers.Length;
 
                 (string, string, string, string) assetIds = await CreateLightmapAssetsSlot();
+
+                string compressionType = "[Elements.Assets]Elements.Assets.TextureCompression?";
+                string compressionMultiDriverId = await AddValueMultiDriverConfig(assetIds.Item1, compressionType, new Dictionary<string, Member> {
+                    { "Value", new Field_Nullable_Enum { Value = "BC6H_LZMA" } },
+                }, new Dictionary<string, Member> {
+                    { "FalseValue", new Field_Nullable_Enum { Value = "BC6H_LZMA" } },
+                    { "TrueValue", new Field_Nullable_Enum { Value = "RawRGBAHalf" } },
+                });
+
+                string colorMultiDriverId = await AddValueMultiDriverConfigWithProxy(assetIds.Item1, "colorX", new Dictionary<string, Member> {
+                    { "Value", new Field_colorX { Value = new colorX() { r = 1, g = 1, b = 1, a = 1, Profile = "Linear" } } },
+                });
+
+                textureElementsToSend = new List<Member>();
+                colorElementsToSend = new List<Member>();
 
                 for (int i = 0; i < total; i++) {
                     Mesh mesh = ApplyLightmapOffsetsToMesh(meshRenderers[i]);
@@ -872,6 +1079,9 @@ namespace LightBakingResoLink {
                     progressCallback?.Invoke($"Applying lightmap offsets... ({i}/{total})", i / (float)total);
                 }
 
+                await UpdateListItems(compressionMultiDriverId, $"[FrooxEngine]FrooxEngine.ValueMultiDriver<{compressionType}>", textureElementsToSend);
+                await UpdateListItems(colorMultiDriverId, $"[FrooxEngine]FrooxEngine.ValueMultiDriver<colorX>", colorElementsToSend);
+
                 progressCallback?.Invoke("Lightmap offsets applied.", 1f);
             } catch (Exception e) {
                 Debug.LogError($"Error applying lightmap offsets: {e.Message}\n{e.StackTrace}");
@@ -879,20 +1089,43 @@ namespace LightBakingResoLink {
             await Task.CompletedTask;
         }
 
+        private async Task UpdateListItems(string listId, string type, List<Member> elements) {
+            if (!IsConnected()) return;
+
+            await linkInterface.UpdateComponent(new UpdateComponent() {
+                Data = new ResoniteLink.Component() {
+                    ID = listId,
+                    ComponentType = type,
+                    Members = new Dictionary<string, Member> {
+                        { "Drives",  new SyncList { Elements = elements } }
+                    }
+                }
+            });
+        }
+
         private async Task<(string, string, string, string)> CreateLightmapAssetsSlot() {
-            string lightmapAssetId = await AddSlotToResolink("LightmapAssets", "Root");
+            if (!IsConnected()) return (null, null, null, null);
 
-            if (lightmapAssetId == null) return (null, null, null, null);
+            if (lumosConfigSlot?.Data?.ID == null) {
+                SlotData root = await FetchSlot("Root", true);
+                await FetchConfig(root);
+            }
 
-            string meshSlotId = await AddSlotToResolink("Meshes", lightmapAssetId);
-            string textureSlotId = await AddSlotToResolink("Textures", lightmapAssetId);
-            string materialSlotId = await AddSlotToResolink("Materials", lightmapAssetId);
+            string lumosAssetId = await AddSlotToResolink("LumosAssets", lumosConfigSlot?.Data?.ID);
+
+            if (lumosAssetId == null) return (null, null, null, null);
+
+            string meshSlotId = await AddSlotToResolink("Meshes", lumosAssetId);
+            string textureSlotId = await AddSlotToResolink("Textures", lumosAssetId);
+            string materialSlotId = await AddSlotToResolink("Materials", lumosAssetId);
             
-            return (lightmapAssetId, meshSlotId, textureSlotId, materialSlotId);
+            return (lumosAssetId, meshSlotId, textureSlotId, materialSlotId);
         }
 
         private async Task<(string, string)> AddLightmapAssetsToSlots((string, string, string, string) assetIds, string meshUri, string lightmapUri) {
-            string lightmapAssetId = assetIds.Item1;
+            if (!IsConnected()) return (null, null);
+
+            string lumosAssetId = assetIds.Item1;
             string meshSlotId = assetIds.Item2;
             string textureSlotId = assetIds.Item3;
             string materialSlotId = assetIds.Item4;
@@ -901,15 +1134,26 @@ namespace LightBakingResoLink {
             string textureId = await AddTextureToResolinkSlot(textureSlotId, lightmapUri);
             string materialId = await AddMaterialToResolinkSlot(materialSlotId, textureId);
 
+            ComponentData staticTexture = await FetchComponent(textureId);
+            staticTexture.Data.Members.TryGetValue("PreferredFormat", out Member format);
+            textureElementsToSend.Add(new Reference { TargetID = format.ID });
+
+            ComponentData material = await FetchComponent(materialId);
+            material.Data.Members.TryGetValue("TintColor", out Member color);
+            colorElementsToSend.Add(new Reference { TargetID = color.ID });
+
             return (meshId, materialId);
         }
 
         private async Task SendMeshRendererToResoLink((string, string, string, string) assetIds, string targetId, Mesh mesh, Texture2D lightmap) {
+            if (!IsConnected()) return;
+
             string meshUri = await SendUnityMeshToResoLink(mesh);
             string lightmapUri = await SendTextureToResoLink(lightmap);
 
             (string, string) assets = await AddLightmapAssetsToSlots(assetIds, meshUri, lightmapUri);
-            await AddMeshRendererToResolinkSlot(targetId, assets.Item1, assets.Item2);
+            string meshRendererId = await AddMeshRendererToResolinkSlot(targetId, assets.Item1, assets.Item2);
+            await AddDestroyProxyToResolinkSlot(assetIds.Item1, meshRendererId);
         }
     }
 }

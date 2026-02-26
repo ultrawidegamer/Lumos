@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace ResoMeshXParsing {
@@ -83,6 +84,19 @@ namespace ResoMeshXParsing {
                     return MeshTopology.Triangles;
             }
         }
+        
+        public static Mesh CombineSubmeshes(Mesh mesh) {
+            List<int> allIndices = new List<int>();
+
+            for (int i = 0; i < mesh.subMeshCount; i++) {
+                allIndices.AddRange(mesh.GetIndices(i));
+            }
+
+            mesh.subMeshCount = 1;
+            mesh.SetIndices(allIndices.ToArray(), MeshTopology.Triangles, 0);
+
+            return mesh;
+        }
 
         public static MeshRenderer ApplyMeshToGameObject(Mesh mesh, GameObject targetObject, bool enableRenderer) {
             MeshFilter meshFilter = targetObject.GetComponent<MeshFilter>();
@@ -97,18 +111,9 @@ namespace ResoMeshXParsing {
                 meshRenderer.enabled = enableRenderer;
             }
 
-            int subMeshCount = mesh != null ? mesh.subMeshCount : 1;
-            Material[] sharedMaterials = meshRenderer.sharedMaterials;
-            if (sharedMaterials == null || sharedMaterials.Length != subMeshCount) {
-                sharedMaterials = new Material[subMeshCount];
-            }
-
+            mesh = CombineSubmeshes(mesh);
             Shader shader = Shader.Find("Standard");
-            for (int i = 0; i < subMeshCount; i++) {
-                if (sharedMaterials[i] != null) continue;
-                sharedMaterials[i] = new Material(shader);
-            }
-            meshRenderer.sharedMaterials = sharedMaterials;
+            meshRenderer.sharedMaterial = new Material(shader);
 
             return meshRenderer;
         }

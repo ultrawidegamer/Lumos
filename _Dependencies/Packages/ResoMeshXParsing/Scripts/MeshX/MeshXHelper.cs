@@ -71,6 +71,10 @@ namespace ResoMeshXParsing {
         public Task<MeshXData> DownloadLocalMeshX(string id) {
             string path = $"{MeshXCache.Instance.dataDirectory}/Assets/{id}";
 
+            if (MeshXCache.Instance.PathExists($"{path}.meshx")) {
+                path += ".meshx";
+            }
+
             if (MeshXCache.Instance.PathExists(path)) {
                 try {
                     using (FileStream fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)) {

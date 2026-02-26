@@ -144,7 +144,10 @@ namespace ResoMeshXParsing {
 
             string normalizedId = id.ToLowerInvariant();
             
-            if (cachedUriPaths.TryGetValue(normalizedId, out string cachedPath) && PathExists(cachedPath)) {
+            cachedUriPaths.TryGetValue(normalizedId, out string cachedPath);
+            bool ifExists = PathExists(cachedPath);
+
+            if (ifExists) {
                 return cachedPath;
             }
             
