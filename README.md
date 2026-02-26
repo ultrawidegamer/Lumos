@@ -47,7 +47,7 @@ To set up a LumosConfig, simply add a slot named "LumosConfig" to the root of th
 | ValueField         | ColorX              | Automatic       | ColorX value that allows for adjusting the lightmaps color |
 | BooleanValueDriver | TextureCompression? | Automatic       | Boolean to toggle all TextureCompression values between BC6H_LZMA (lossy) and RawRGBAHalf (lossless). Only use RawRGBAHalf if necessary and you understand the consequences, as it will significantly increase VRAM usage |
 
-Adding types are either Manual or Automatic
+Adding type is either Manual or Automatic
 * Manual - Component needs to be added manually to the LumosConfig slot before the step of Retrieving data from ResoniteLink
 * Automatic - Component will be automatically added to the LumosConfig during the step of Sending Scene to Resonite
 
