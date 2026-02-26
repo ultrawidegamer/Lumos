@@ -443,7 +443,6 @@ public class LightBaking : EditorWindow {
     private async void RetrieveMesh() {
         try {
             Debug.Log("Starting Retrieval from ResoLink");
-            TaskQueue.ForceDelay = true;
             await Task.Delay(1);
             await ProgressBar(meshXCache.UpdatePathCache);
             await Task.Delay(1);
@@ -462,7 +461,6 @@ public class LightBaking : EditorWindow {
         } catch (Exception e) {
             Debug.LogError($"Error during mesh retrieval: {e.Message}\n{e.StackTrace}");
         } finally {
-            TaskQueue.ForceDelay = false;
             EditorUtility.ClearProgressBar();
             Debug.Log("Retrieval from ResoLink finished");
         }
