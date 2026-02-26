@@ -27,6 +27,8 @@ namespace LightBakingResoLink {
         private SlotData lumosConfigSlot = null;
         private List<Member> textureElementsToSend = null;
         private List<Member> colorElementsToSend = null;
+        public bool respectSlotActiveState = true;
+        public bool respectMeshRendererActiveState = true;
 
         public static ResoLinkHelper Instance {
             get {
@@ -520,7 +522,8 @@ namespace LightBakingResoLink {
                     GameObject obj = createdObjects[path];
 
                     if (slotDataLookup.TryGetValue(path, out SlotData slotData)) {
-                        obj.SetActive(slotData.Data.IsActive.Value);
+                        bool shouldBeActive = respectSlotActiveState ? (slotData.Data.IsActive?.Value ?? true) : true;
+                        obj.SetActive(shouldBeActive);
 
                         if (slotData.Data.Position?.Value != null) {
                             float3 value = slotData.Data.Position.Value;
@@ -582,13 +585,14 @@ namespace LightBakingResoLink {
                         ResoniteLink.Component meshRenderer = GetMeshRenderer(slotInfo.Data);
 
                         meshRenderer.Members.TryGetValue("Enabled", out Member enabled);
+                        bool shouldBeActive = respectMeshRendererActiveState ? ((enabled as Field_bool)?.Value ?? true) : true;
 
                         if (urlMember == null || meshUri == null) return;
 
                         Mesh mesh = await AcquireMesh(meshUri);
                         if (mesh == null) return;
 
-                        MeshRenderer renderer = MeshXConverter.ApplyMeshToGameObject(mesh, targetObject, (enabled as Field_bool).Value);
+                        MeshRenderer renderer = MeshXConverter.ApplyMeshToGameObject(mesh, targetObject, shouldBeActive);
 
                         TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
 

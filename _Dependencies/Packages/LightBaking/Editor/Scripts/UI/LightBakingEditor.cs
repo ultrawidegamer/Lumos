@@ -67,9 +67,9 @@ public class LightBaking : EditorWindow {
     private int filteringIndex = 1;
     private Color ambientColor = Color.white;
 
-    [MenuItem("Tools/Light Baking")]
+    [MenuItem("Tools/Lumos")]
     public static void ShowWindow() {
-        GetWindow<LightBaking>("Light Baking");
+        GetWindow<LightBaking>("Lumos");
     }
 
     private void OnEnable() {
@@ -177,6 +177,17 @@ public class LightBaking : EditorWindow {
 
         if (showActionSettings) {
             EditorGUI.indentLevel++;
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Respect Slot Active", GUILayout.Width(190));
+            resoLinkHelper.respectSlotActiveState = EditorGUILayout.Toggle(resoLinkHelper.respectSlotActiveState);
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Respect Mesh Renderer Active", GUILayout.Width(190));
+            resoLinkHelper.respectMeshRendererActiveState = EditorGUILayout.Toggle(resoLinkHelper.respectMeshRendererActiveState);          
+            EditorGUILayout.EndHorizontal();
+
             if (GUILayout.Button("Retrieve Resonite Data")) {
                 RetrieveMesh();
             }
