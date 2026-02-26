@@ -51,6 +51,8 @@ Adding type is either Manual or Automatic
 * Manual - Component needs to be added manually to the LumosConfig slot before the step of Retrieving data from ResoniteLink
 * Automatic - Component will be automatically added to the LumosConfig during the step of Sending Scene to Resonite
 
+After sending the scene to Resonite, if you want to remove the baked lighting data and any related configuration items, there is a simple way to do it. A new slot called LumosAssets has been added to LumosConfig. Simply delete the LumosAssets slot, and it will automatically clean up all baked lighting data and settings.
+
 
 ## Known Issues
 
