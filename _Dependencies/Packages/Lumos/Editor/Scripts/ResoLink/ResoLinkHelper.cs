@@ -456,10 +456,10 @@ namespace LightBakingResoLink {
         public void CreateUnityHierarchyPart(SlotInfo slotInfo) {         
             try {
                 if (!IsConnected()) return;
-                    
+
                 if (slotInfo == null || slotInfo.Path == null || slotInfo.Path.Length == 0) return;
 
-                GameObject currentObject = null;
+                GameObject parentObject = null;
                 string currentPath = "";
 
                 for (int i = 0; i < slotInfo.Path.Length; i++) {
@@ -468,15 +468,17 @@ namespace LightBakingResoLink {
                     string pathSegment = slotInfo.Path[i];
                     currentPath = i == 0 ? pathSegment : currentPath + "/" + pathSegment;
 
-                    currentObject = createdObjects.GetOrAdd(currentPath, _ => {
-                        GameObject newObject = new GameObject(pathSegment);
-                        if (currentObject != null) {
-                            newObject.transform.SetParent(currentObject.transform, false);
+                    GameObject currentObject = createdObjects.GetOrAdd(currentPath, _ => new GameObject(pathSegment));
 
-                            AddLightToScene(newObject, slotInfo.Light);
-                        }
-                        return newObject;
-                    });
+                    if (parentObject != null) {
+                        currentObject.transform.SetParent(parentObject.transform, false);
+                    }
+
+                    parentObject = currentObject;
+                }
+
+                if (slotInfo.Light != null && parentObject != null) {
+                    AddLightToScene(parentObject, slotInfo.Light);
                 }
             } catch (Exception e) {
                 Debug.LogError($"Failed to create Unity Hierarchy: {e.Message}");

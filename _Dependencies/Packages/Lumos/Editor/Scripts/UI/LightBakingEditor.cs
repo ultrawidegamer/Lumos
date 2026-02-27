@@ -447,7 +447,7 @@ public class Lumos : EditorWindow {
 
     private Task ProgressBar(Func<Action<string, float>, Task> func) {
         return func((message, progress) => {
-            EditorUtility.DisplayProgressBar("Light Baking", message, Mathf.Clamp01(progress));
+            EditorUtility.DisplayProgressBar("Lumos", message, Mathf.Clamp01(progress));
         });
     }
 
@@ -464,7 +464,7 @@ public class Lumos : EditorWindow {
             await ProgressBar(resoLinkHelper.ApplyTRSToObjects);
             await Task.Delay(1);
             await resoLinkHelper.DownloadAndApplyMeshes((message, progress, obj) => {
-                EditorUtility.DisplayProgressBar("Light Baking", message, Mathf.Clamp01(progress));
+                EditorUtility.DisplayProgressBar("Lumos", message, Mathf.Clamp01(progress));
                 if (obj != null) {
                     FocusNewObject(obj);
                 }
