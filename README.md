@@ -60,7 +60,10 @@ After sending the scene to Resonite, if you want to remove the baked lighting da
 * Blendshape and bone data is not currently supported
 * Not all meshx file versions have been tested (old samples are hard to find) If a meshx file isnt working try pressing resave on the StaticMesh component to update it
 * Procedural meshes are not currently supported. To resolve this, first bake the mesh as a StaticMesh
-* Textures are not currently supported, which can cause lighting and shadow accuracy issues that may require manual adjustments in Unity
+* Textures and materials are not currently properly supported, which can cause lighting and shadow accuracy issues that may require manual adjustments in Unity
+* There is currently no automated way to specify backface global illumination
+* ShadowCastMode is not currently respected
+* Skybox textures are not supported
 
 
 ## License
