@@ -201,7 +201,6 @@ namespace LightBakingResoLink {
                         { "Mesh", new Reference { TargetID = meshId } },
                         { "Materials",  new SyncList { Elements = new List<Member> { new Reference { TargetID = materialId } } } },
                         { "ShadowCastMode", new Field_Enum { Value = "Off" } },
-                        { "MotionVectorMode", new Field_Enum { Value = "NoMotion" } },
                     }
                 });
             } catch (Exception e) {
